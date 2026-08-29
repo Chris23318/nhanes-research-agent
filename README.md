@@ -51,4 +51,6 @@ npm run check
 
 完整生产架构、数据库、Agent 契约、统计规则和开发路线见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
+Docker、HTTPS、GitHub 容器发布和服务器更新步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+
 > 本项目用于研究辅助，不替代流行病学家和统计学家的独立复核。

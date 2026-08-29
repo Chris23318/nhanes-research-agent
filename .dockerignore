@@ -1,0 +1,12 @@
+.git
+.github
+.ghconfig
+.env
+node_modules
+test
+sources
+AGENTS.md
+artifacts
+*.log
+README.md
+ARCHITECTURE.md
