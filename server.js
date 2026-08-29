@@ -1,0 +1,3 @@
+const http=require('http'),fs=require('fs'),path=require('path');
+const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.md':'text/markdown; charset=utf-8'};
+http.createServer((req,res)=>{const p=decodeURIComponent(new URL(req.url,'http://localhost').pathname);const file=path.normalize(path.join(root,p==='/'?'index.html':p));if(!file.startsWith(root)||!fs.existsSync(file)||fs.statSync(file).isDirectory()){res.writeHead(404);return res.end('Not found')}res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-store'});fs.createReadStream(file).pipe(res)}).listen(process.env.PORT||4173,()=>console.log('NHANES Lab: http://localhost:4173'));
