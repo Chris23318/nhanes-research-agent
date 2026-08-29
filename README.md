@@ -8,7 +8,7 @@
 npm run dev
 ```
 
-打开 `http://localhost:4173`。当前版本是无外部依赖的交互式 MVP，内置“血清维生素 D 与抑郁症状”演示项目。
+打开 `http://localhost:4173`。当前版本是无外部依赖的交互式 MVP，内置演示项目和可调用的研究工作流 API。
 
 ## 已实现
 
@@ -19,6 +19,30 @@ npm run dev
 - R `survey` / `nhanesA` 分析代码骨架
 - 复杂抽样分析质量门与人工确认点
 - 研究方案导出与响应式布局
+- 研究项目创建、运行、查询和确认 API
+- SSE 实时 Agent 事件流
+- 结构化领域校验、显式状态机与人工质量门
+- OpenAI Responses API 严格 Schema / 函数工具请求构造器
+- Node 原生测试覆盖领域契约和项目生命周期
+
+## API
+
+```text
+GET  /api/health
+POST /api/projects
+GET  /api/projects/:id
+POST /api/projects/:id/run
+GET  /api/projects/:id/events
+POST /api/projects/:id/approve
+```
+
+当前为 `demo` 模式：PubMed 只生成可审计查询，不会把未实时检索的 PMID 冒充为已验证证据。`src/openai-adapter.js` 定义了生产接入所需的结构化输出和工具契约，但不会在缺少 API Key 时静默调用模型。
+
+## 测试
+
+```bash
+npm run check
+```
 
 完整生产架构、数据库、Agent 契约、统计规则和开发路线见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
