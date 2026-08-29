@@ -8,6 +8,8 @@ test.after(()=>server.close());
 
 test('health endpoint exposes demo mode',async()=>{const response=await fetch(`${base}/api/health`);assert.equal(response.status,200);assert.equal((await response.json()).mode,'demo')});
 
+test('catalog endpoint returns provenance',async()=>{const response=await fetch(`${base}/api/catalog/variables?q=LBXVIDMS`);const body=await response.json();assert.equal(body.items.length,1);assert.equal(body.items[0].provenance.publisher,'CDC/NCHS')});
+
 test('project lifecycle reaches the approval gate',async()=>{
   let response=await fetch(`${base}/api/projects`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:'Study serum vitamin D and depressive symptoms among NHANES adults'})});
   assert.equal(response.status,201);const project=await response.json();
