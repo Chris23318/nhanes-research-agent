@@ -14,6 +14,13 @@ test('catalog variable mappings satisfy the contract',()=>{
   assert.ok(values.every(value=>value.cycles.length===6));
 });
 
+test('unmatched topics never inherit vitamin D or PHQ-9 variables',()=>{
+  const variables=resolveVariables({exposure:{term:'sleep duration'},outcome:{term:'cardiovascular disease'}});
+  assert.equal(variables.some(item=>item.variable==='LBXVIDMS'),false);
+  assert.equal(variables.some(item=>item.variable.includes('DPQ')),false);
+  assert.ok(variables.some(item=>item.variable==='WTMEC2YR'));
+});
+
 test('state transitions cannot skip quality gates',()=>{
   assert.doesNotThrow(()=>validateTransition('parse','variables'));
   assert.throws(()=>validateTransition('parse','protocol'),/invalid transition/);

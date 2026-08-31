@@ -13,8 +13,11 @@ const VARIABLES = [
   { role: 'design', concept: 'PSU', variable: 'SDMVPSU', source: 'DEMO', transform: 'retain', confidence: 1 }
 ].map(item => ({ ...item, cycles: CYCLES, provenance: { publisher: 'CDC/NCHS', verification: 'demo snapshot; verify against cycle codebook before execution' } }));
 
-function resolveVariables() {
-  return structuredClone(VARIABLES);
+function resolveVariables(intent) {
+  const values = structuredClone(VARIABLES);
+  if (!intent) return values;
+  const isVitaminDepression = intent.exposure?.term === 'serum 25-hydroxyvitamin D' && intent.outcome?.term === 'depressive symptoms';
+  return isVitaminDepression ? values : values.filter(item => item.role === 'covariate' || item.role === 'design');
 }
 
 function searchCatalog(query = '') {

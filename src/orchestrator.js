@@ -2,6 +2,7 @@ const { EventEmitter } = require('events');
 const { id, validateQuestion, validateVariableMap, validateTransition } = require('./domain');
 const { CYCLES, resolveVariables } = require('./catalog');
 const { defaultStore } = require('./store');
+const { parseQuestion } = require('./question-parser');
 
 const projects = new Map();
 const bus = new EventEmitter();
@@ -10,7 +11,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function createProject(input) {
   const question = validateQuestion(input);
-  const project = { id: id('prj'), title: '维生素 D 水平与抑郁症状', question, status: 'draft', stage: null, createdAt: new Date().toISOString(), events: [], approvals: [] };
+  const intent = parseQuestion(question);
+  const project = { id: id('prj'), title: intent.title, question, intent, status: 'draft', stage: null, createdAt: new Date().toISOString(), events: [], approvals: [] };
   projects.set(project.id, project);
   defaultStore.save(project, 'project.created', { question });
   return project;
@@ -44,12 +46,8 @@ async function runProject(projectId) {
     emit(project, stage, 'completed', `${message}完成`, data);
     return data;
   };
-  project.intent = await work('parse', '结构化研究问题', () => ({
-    population: { ageMin: 20, pregnancy: 'exclude', geography: 'United States' },
-    exposure: 'serum 25-hydroxyvitamin D', outcome: 'clinically relevant depressive symptoms',
-    cycles: CYCLES, estimand: 'prevalence odds ratio', ambiguities: ['confirm PHQ-9 threshold', 'confirm assay harmonization']
-  }));
-  project.variables = await work('variables', '匹配 NHANES 变量', () => validateVariableMap(resolveVariables()));
+  project.intent = await work('parse', '结构化研究问题', () => project.intent || parseQuestion(project.question));
+  project.variables = await work('variables', '匹配 NHANES 变量', () => validateVariableMap(resolveVariables(project.intent)));
   project.literature = await work('literature', '构建 PubMed 证据集', () => ({
     query: '(vitamin D[MeSH Terms] OR 25-hydroxyvitamin D) AND (depression[MeSH Terms] OR depressive symptoms) AND (NHANES OR National Health and Nutrition Examination Survey)',
     mode: 'demo', articles: [], warning: 'Live NCBI E-utilities adapter is not configured; no PMID is presented as verified evidence.'

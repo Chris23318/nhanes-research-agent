@@ -38,6 +38,7 @@ GET  /api/projects/:id/analysis-package
 GET  /api/catalog/variables?q=vitamin
 GET  /api/catalog/cdc?component=Laboratory&cycle=2017-2018&q=vitamin
 POST /api/tools/pubmed/search
+POST /api/tools/parse-question
 ```
 
 变量目录当前为带来源声明的演示快照，正式分析前必须逐周期复核。PubMed 工具可通过 NCBI E-utilities 实时检索；建议配置 `NCBI_EMAIL`，高频使用时配置 `NCBI_API_KEY`。`src/openai-adapter.js` 定义了生产接入所需的结构化输出和工具契约，但不会在缺少 API Key 时静默调用模型。
