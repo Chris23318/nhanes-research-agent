@@ -1,9 +1,33 @@
 const BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 
-function buildQuery({ exposure, outcome, population = '', nhanesOnly = true }) {
-  const clean = value => String(value || '').replace(/[\[\]"']/g, ' ').replace(/\s+/g, ' ').trim();
-  const parts = [`(${clean(exposure)}[Title/Abstract])`, `(${clean(outcome)}[Title/Abstract])`];
-  if (population) parts.push(`(${clean(population)}[Title/Abstract])`);
+const CONCEPTS = [
+  { match: /vitamin\s*d|25[- ]?hydroxyvitamin|25ohd/i, terms: ['vitamin D', '25-hydroxyvitamin D', '25OHD'], mesh: 'Vitamin D' },
+  { match: /depress|phq-?9/i, terms: ['depression', 'depressive symptoms', 'PHQ-9'], mesh: 'Depression' },
+  { match: /sleep duration|sleep time/i, terms: ['sleep duration', 'sleep time', 'short sleep', 'long sleep'], mesh: 'Sleep Duration' },
+  { match: /cardiovascular|\bcvd\b/i, terms: ['cardiovascular disease', 'cardiovascular diseases', 'CVD'], mesh: 'Cardiovascular Diseases' },
+  { match: /dietary inflammatory|\bdii\b/i, terms: ['dietary inflammatory index', 'DII'] },
+  { match: /chronic kidney|\bckd\b/i, terms: ['chronic kidney disease', 'CKD', 'renal insufficiency'], mesh: 'Renal Insufficiency, Chronic' }
+];
+
+const cleanTerm = value => String(value || '').replace(/[\[\]"']/g, ' ').replace(/\s+/g, ' ').trim();
+const tagged = term => `"${cleanTerm(term)}"[Title/Abstract]`;
+
+function conceptTerms(value) {
+  const clean = cleanTerm(value), known = CONCEPTS.find(item => item.match.test(clean));
+  return known ? { terms: known.terms, mesh: known.mesh } : { terms: clean ? [clean] : [], mesh: null };
+}
+
+function conceptClause(value, mode = 'expanded') {
+  const concept = conceptTerms(value);
+  if (mode === 'precise') return concept.terms[0] ? `(${tagged(concept.terms[0])})` : '';
+  const alternatives = concept.terms.map(tagged);
+  if (concept.mesh) alternatives.unshift(`"${concept.mesh}"[MeSH Terms]`);
+  return alternatives.length ? `(${alternatives.join(' OR ')})` : '';
+}
+
+function buildQuery({ exposure, outcome, population = '', nhanesOnly = true, mode = 'expanded', includePopulation = false }) {
+  const parts = [conceptClause(exposure, mode), conceptClause(outcome, mode)].filter(Boolean);
+  if (includePopulation && population) parts.push(`(${tagged(population)})`);
   if (nhanesOnly) parts.push('(NHANES[Title/Abstract] OR "National Health and Nutrition Examination Survey"[Title/Abstract])');
   return parts.join(' AND ');
 }
@@ -55,6 +79,19 @@ function inferMethods(article) {
   return { tags, basis: 'rule-based inference from title and abstract; verify full text' };
 }
 
+function scoreRelevance(article, input) {
+  const text = `${article.title || ''} ${article.abstract || ''}`.toLowerCase();
+  const signals = [];
+  const hasConcept = (value, label, weight) => {
+    const matched = conceptTerms(value).terms.filter(term => text.includes(term.toLowerCase()));
+    if (matched.length) signals.push({ label, matched, weight });
+    return matched.length ? weight : 0;
+  };
+  let score = hasConcept(input.exposure, 'exposure', 35) + hasConcept(input.outcome, 'outcome', 35);
+  if (/\bnhanes\b|national health and nutrition examination survey/i.test(text)) { score += 30; signals.push({ label: 'NHANES', matched: ['NHANES'], weight: 30 }); }
+  return { score, signals, basis: 'title/abstract term matching; not a risk-of-bias assessment' };
+}
+
 async function searchPubMed(input, options = {}) {
   const query = input.query || buildQuery(input);
   const limit = Math.min(Math.max(Number(input.limit) || 10, 1), 50);
@@ -72,9 +109,9 @@ async function searchPubMed(input, options = {}) {
   const articles = ids.map(pmid => data.result?.[pmid]).filter(Boolean).map(item => {
     const record = records.get(item.uid) || { abstract: null, publicationTypes: [] };
     const article = { pmid: item.uid, title: item.title, journal: item.fulljournalname || item.source, published: item.pubdate, authors: (item.authors || []).map(a => a.name), doi: (item.articleids || []).find(x => x.idtype === 'doi')?.value || null, abstract: record.abstract, publicationTypes: record.publicationTypes, url: `https://pubmed.ncbi.nlm.nih.gov/${item.uid}/` };
-    article.methods = inferMethods(article); return article;
-  });
+    article.methods = inferMethods(article); article.relevance = scoreRelevance(article, input); return article;
+  }).sort((a, b) => b.relevance.score - a.relevance.score);
   return { query, count: Number(found.esearchresult?.count || articles.length), articles, retrievedAt: new Date().toISOString(), source: 'NCBI PubMed E-utilities', compliance: { contactEmailConfigured: Boolean(options.email), apiKeyConfigured: Boolean(options.apiKey) } };
 }
 
-module.exports = { BASE_URL, buildQuery, parsePubMedXml, inferMethods, searchPubMed };
+module.exports = { BASE_URL, CONCEPTS, buildQuery, parsePubMedXml, inferMethods, scoreRelevance, searchPubMed };

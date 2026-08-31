@@ -6,6 +6,15 @@ test('PubMed query strips control syntax from concepts',()=>{
   const query=buildQuery({exposure:'vitamin D[evil]',outcome:'depression"',nhanesOnly:true});
   assert.ok(!query.includes('[evil]'));
   assert.match(query,/NHANES/);
+  assert.match(query,/25-hydroxyvitamin D/);
+  assert.match(query,/MeSH Terms/);
+  assert.ok(!query.includes('United States'));
+});
+
+test('precise mode and optional population remain available',()=>{
+  const query=buildQuery({exposure:'sleep duration',outcome:'cardiovascular disease',population:'United States',mode:'precise',includePopulation:true});
+  assert.ok(!query.includes('short sleep'));
+  assert.match(query,/United States/);
 });
 
 test('PubMed adapter returns audited summaries',async()=>{
@@ -16,5 +25,6 @@ test('PubMed adapter returns audited summaries',async()=>{
   assert.match(result.articles[0].abstract,/METHODS/);
   assert.ok(result.articles[0].methods.tags.includes('logistic regression'));
   assert.deepEqual(result.articles[0].publicationTypes,['Journal Article']);
+  assert.equal(result.articles[0].relevance.score,0);
   assert.equal(result.source,'NCBI PubMed E-utilities');
 });
