@@ -1,6 +1,7 @@
 const { EventEmitter } = require('events');
 const { id, validateQuestion, validateVariableMap, validateTransition } = require('./domain');
 const { CYCLES, resolveVariables } = require('./catalog');
+const { defaultStore } = require('./store');
 
 const projects = new Map();
 const bus = new EventEmitter();
@@ -11,18 +12,21 @@ function createProject(input) {
   const question = validateQuestion(input);
   const project = { id: id('prj'), title: '维生素 D 水平与抑郁症状', question, status: 'draft', stage: null, createdAt: new Date().toISOString(), events: [], approvals: [] };
   projects.set(project.id, project);
+  defaultStore.save(project, 'project.created', { question });
   return project;
 }
 
 function getProject(projectId) {
-  const project = projects.get(projectId);
+  const project = projects.get(projectId) || defaultStore.get(projectId);
   if (!project) { const error = new Error('project not found'); error.status = 404; error.code = 'NOT_FOUND'; throw error; }
+  projects.set(project.id, project);
   return project;
 }
 
 function emit(project, stage, status, message, data) {
   const event = { id: id('evt'), projectId: project.id, stage, status, message, data, at: new Date().toISOString() };
   project.events.push(event);
+  defaultStore.save(project, `stage.${stage}.${status}`, { eventId: event.id, message });
   bus.emit(project.id, event);
   return event;
 }
@@ -67,6 +71,8 @@ function approveProject(projectId, input = {}) {
   project.approvals.push(approval); project.status = 'approved'; emit(project, 'protocol', 'approved', '研究方案已确认', approval); return project;
 }
 
+function listProjects(limit){return defaultStore.list(limit)}
+
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
 
-module.exports = { createProject, getProject, runProject, approveProject, subscribe, projects };
+module.exports = { createProject, getProject, listProjects, runProject, approveProject, subscribe, projects };

@@ -8,6 +8,7 @@ services:
       NCBI_EMAIL: ${NCBI_EMAIL:?Set NCBI_EMAIL in .env}
       NCBI_API_KEY: ${NCBI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DATABASE_PATH: /data/nhanes.sqlite
     expose:
       - "4173"
     networks:
@@ -23,6 +24,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
+    volumes:
+      - app_data:/data
 
   caddy:
     image: caddy:2.10-alpine
@@ -48,5 +51,6 @@ networks:
     driver: bridge
 
 volumes:
+  app_data:
   caddy_data:
   caddy_config:

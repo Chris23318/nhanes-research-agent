@@ -1,16 +1,19 @@
 const http=require('http'),fs=require('fs'),path=require('path');
-const {createProject,getProject,runProject,approveProject,subscribe}=require('./src/orchestrator');
+const {createProject,getProject,listProjects,runProject,approveProject,subscribe}=require('./src/orchestrator');
 const {searchCatalog}=require('./src/catalog');
 const {searchPubMed}=require('./src/pubmed');
 const {generateRProject}=require('./src/analysis-package');
+const {fetchOfficialCatalog}=require('./src/cdc-catalog');
 const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.md':'text/markdown; charset=utf-8'};
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
 async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
 async function api(req,res,url){
   if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',mode:'demo'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/variables')return json(res,200,{items:searchCatalog(url.searchParams.get('q')||''),mode:'verified-demo-snapshot'});
+  if(req.method==='GET'&&url.pathname==='/api/catalog/cdc'){return json(res,200,await fetchOfficialCatalog({component:url.searchParams.get('component')||'Demographics',cycle:url.searchParams.get('cycle')||'',query:url.searchParams.get('q')||'',limit:url.searchParams.get('limit')||100}))}
   if(req.method==='POST'&&url.pathname==='/api/tools/pubmed/search'){const input=await body(req);return json(res,200,await searchPubMed(input,{email:process.env.NCBI_EMAIL,apiKey:process.env.NCBI_API_KEY,tool:'nhanes_research_agent'}))}
   if(req.method==='POST'&&url.pathname==='/api/projects')return json(res,201,createProject(await body(req)));
+  if(req.method==='GET'&&url.pathname==='/api/projects')return json(res,200,{items:listProjects(url.searchParams.get('limit'))});
   const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|approve|events|analysis-package))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
   const [,projectId,action]=match;
   if(req.method==='GET'&&!action)return json(res,200,getProject(projectId));

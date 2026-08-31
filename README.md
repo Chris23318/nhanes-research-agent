@@ -36,12 +36,15 @@ GET  /api/projects/:id/events
 POST /api/projects/:id/approve
 GET  /api/projects/:id/analysis-package
 GET  /api/catalog/variables?q=vitamin
+GET  /api/catalog/cdc?component=Laboratory&cycle=2017-2018&q=vitamin
 POST /api/tools/pubmed/search
 ```
 
 变量目录当前为带来源声明的演示快照，正式分析前必须逐周期复核。PubMed 工具可通过 NCBI E-utilities 实时检索；建议配置 `NCBI_EMAIL`，高频使用时配置 `NCBI_API_KEY`。`src/openai-adapter.js` 定义了生产接入所需的结构化输出和工具契约，但不会在缺少 API Key 时静默调用模型。
 
 分析包接口生成 `analysis.R`、冻结配置和机器可读 QC 规则。未检测到 R 运行环境时，状态始终是 `generated_not_executed`，系统不会把代码生成冒充成分析结果。
+
+生产环境设置 `DATABASE_PATH=/data/nhanes.sqlite` 后，项目和审计事件持久化到 SQLite。Compose 配置已挂载独立数据卷，容器更新不会删除项目数据。
 
 ## 测试
 
