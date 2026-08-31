@@ -17,6 +17,8 @@ test('project lifecycle reaches the approval gate',async()=>{
   await new Promise(resolve=>setTimeout(resolve,700));
   response=await fetch(`${base}/api/projects/${project.id}`);const completed=await response.json();
   assert.equal(completed.status,'awaiting_approval');assert.equal(completed.variables.length,10);
+  response=await fetch(`${base}/api/projects/${project.id}/evidence`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query:'vitamin D AND depression AND NHANES',items:[{pmid:'123',title:'A study',decision:'include',methodTags:['logistic regression'],publicationTypes:['Journal Article'],relevanceScore:100}]})});
+  assert.equal(response.status,200);const screened=await response.json();assert.equal(screened.evidence.summary.included,1);assert.equal(screened.protocol.evidenceIncluded,1);
   response=await fetch(`${base}/api/projects/${project.id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({actor:'tester'})});
   assert.equal(response.status,200);assert.equal((await response.json()).status,'approved');
 });

@@ -3,6 +3,7 @@ const { id, validateQuestion, validateVariableMap, validateTransition } = requir
 const { CYCLES, resolveVariables } = require('./catalog');
 const { defaultStore } = require('./store');
 const { parseQuestion } = require('./question-parser');
+const { normalizeEvidence, summarizeEvidence } = require('./evidence');
 
 const projects = new Map();
 const bus = new EventEmitter();
@@ -69,8 +70,16 @@ function approveProject(projectId, input = {}) {
   project.approvals.push(approval); project.status = 'approved'; emit(project, 'protocol', 'approved', '研究方案已确认', approval); return project;
 }
 
+function saveEvidence(projectId, input = {}) {
+  const project = getProject(projectId), items = normalizeEvidence(input.items);
+  project.evidence = { query: String(input.query || '').slice(0, 5000), retrievedAt: input.retrievedAt || null, screenedAt: new Date().toISOString(), items, summary: summarizeEvidence(items) };
+  project.protocol = { ...(project.protocol || {}), evidenceBasedRecommendations: project.evidence.summary.recommendations, evidenceIncluded: project.evidence.summary.included, evidenceUpdatedAt: project.evidence.screenedAt, approvalRequired: true };
+  defaultStore.save(project, 'evidence.screened', { included: project.evidence.summary.included, excluded: project.evidence.summary.excluded, uncertain: project.evidence.summary.uncertain });
+  return project;
+}
+
 function listProjects(limit){return defaultStore.list(limit)}
 
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
 
-module.exports = { createProject, getProject, listProjects, runProject, approveProject, subscribe, projects };
+module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, subscribe, projects };
