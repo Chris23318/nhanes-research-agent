@@ -1,1 +1,1 @@
-{"name":"nhanes-research-agent","version":"0.5.0","private":true,"scripts":{"dev":"node server.js","check":"node --check server.js && node --check app.js && node --test"},"engines":{"node":">=24"}}
+{"name":"nhanes-research-agent","version":"0.6.0","private":true,"scripts":{"dev":"node server.js","check":"node --check server.js && node --check app.js && node --test"},"engines":{"node":">=24"}}
