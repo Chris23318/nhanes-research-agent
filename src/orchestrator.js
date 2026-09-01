@@ -1,5 +1,5 @@
 const { EventEmitter } = require('events');
-const { id, validateQuestion, validateVariableMap, validateTransition } = require('./domain');
+const { id, validateQuestion, validateVariableMap, validateTransition, validateApproval } = require('./domain');
 const { CYCLES, resolveVariables } = require('./catalog');
 const { defaultStore } = require('./store');
 const { parseQuestion } = require('./question-parser');
@@ -66,8 +66,8 @@ async function runProject(projectId) {
 function approveProject(projectId, input = {}) {
   const project = getProject(projectId);
   if (project.status !== 'awaiting_approval') { const error = new Error('project is not awaiting approval'); error.status = 409; error.code = 'INVALID_STATE'; throw error; }
-  const approval = { id: id('apr'), actor: input.actor || 'researcher', decisions: input.decisions || {}, at: new Date().toISOString() };
-  project.approvals.push(approval); project.status = 'approved'; emit(project, 'protocol', 'approved', '研究方案已确认', approval); return project;
+  const checked = validateApproval(input), approval = { id: id('apr'), actor: checked.actor, decisions: checked.decisions, schemaVersion: '1.0', at: new Date().toISOString() };
+  project.approvals.push(approval); project.status = 'approved'; project.protocol = { ...(project.protocol || {}), frozen: true, frozenAt: approval.at, approvalId: approval.id, decisions: approval.decisions }; emit(project, 'protocol', 'approved', '研究方案已确认并冻结', approval); return project;
 }
 
 function saveEvidence(projectId, input = {}) {

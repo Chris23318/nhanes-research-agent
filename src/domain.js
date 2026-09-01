@@ -41,4 +41,20 @@ function validateTransition(from, to) {
   assert(next === current + 1, `invalid transition from ${from} to ${to}`, 'INVALID_TRANSITION');
 }
 
-module.exports = { STAGES, id, assert, validateQuestion, validateVariableMap, validateTransition };
+function validateApproval(input) {
+  assert(input && typeof input === 'object', 'approval is required');
+  const decisions = input.decisions;
+  assert(decisions && typeof decisions === 'object', 'approval decisions are required');
+  const required = ['outcome_definition', 'exposure_parameterization', 'covariate_set', 'missing_data'];
+  for (const field of required) {
+    assert(typeof decisions[field] === 'string' && decisions[field].trim().length > 0, `${field} is required`);
+    assert(decisions[field].length <= 300, `${field} is too long`);
+  }
+  assert(decisions.association_only === true, 'cross-sectional association acknowledgement is required');
+  return {
+    actor: typeof input.actor === 'string' && input.actor.trim() ? input.actor.trim().slice(0, 100) : 'researcher',
+    decisions: Object.fromEntries(Object.entries(decisions).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]))
+  };
+}
+
+module.exports = { STAGES, id, assert, validateQuestion, validateVariableMap, validateTransition, validateApproval };
