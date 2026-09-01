@@ -6,7 +6,7 @@ let base;
 test.before(async()=>{await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${server.address().port}`});
 test.after(()=>server.close());
 
-test('health endpoint exposes demo mode',async()=>{const response=await fetch(`${base}/api/health`);assert.equal(response.status,200);assert.equal((await response.json()).mode,'demo')});
+test('health endpoint exposes the deployed application version',async()=>{const response=await fetch(`${base}/api/health`);assert.equal(response.status,200);const body=await response.json();assert.equal(body.mode,'production-mvp');assert.equal(body.version,'1.5.0')});
 
 test('catalog endpoint returns provenance',async()=>{const response=await fetch(`${base}/api/catalog/variables?q=LBXVIDMS`);const body=await response.json();assert.equal(body.items.length,1);assert.equal(body.items[0].provenance.publisher,'CDC/NCHS')});
 
@@ -25,4 +25,5 @@ test('project lifecycle reaches the approval gate',async()=>{
   response=await fetch(`${base}/api/projects/${project.id}/analysis-package-download`);assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'application/gzip');assert.ok((await response.arrayBuffer()).byteLength>1000);
   response=await fetch(`${base}/api/projects/${project.id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({actor:'tester'})});
   assert.equal(response.status,200);assert.equal((await response.json()).status,'approved');
+  response=await fetch(`${base}/api/projects?limit=10`);assert.equal(response.status,200);const listing=await response.json();assert.ok(listing.items.some(item=>item.id===project.id));
 });
