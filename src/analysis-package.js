@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { buildDataManifest } = require('./data-manifest');
 
 function assessReadiness(project) {
   const variables = project.variables || [], roles = new Set(variables.map(item => item.role));
@@ -15,11 +16,12 @@ function assessReadiness(project) {
 
 function generateRProject(project) {
   const readiness = assessReadiness(project), cycles = project.intent?.cycles || [], variables = project.variables || [];
+  const dataManifest = buildDataManifest(project);
   const config = {
     schemaVersion: '1.0', projectId: project.id, generatedAt: new Date().toISOString(), question: project.question,
     cycles, weightDivisor: cycles.length || null, variables: variables.map(({ role, concept, variable, source, transform, cycles: coverage }) => ({ role, concept, variable, source, transform, cycles: coverage })),
     includedPmids: (project.evidence?.items || []).filter(item => item.decision === 'include').map(item => item.pmid),
-    protocol: project.protocol, readiness, status: readiness.ready ? 'generated_not_executed' : 'blocked_not_executable'
+    protocol: project.protocol, dataManifest, readiness, status: readiness.ready ? 'generated_not_executed' : 'blocked_not_executable'
   };
   const ageMin = project.intent?.population?.ageMin || 18;
   const r = [
@@ -51,7 +53,7 @@ function generateRProject(project) {
     ['report', 'error', 'every reported number has an artifact path']
   ];
   const files = {
-    'analysis-spec.json': JSON.stringify(config, null, 2), 'analysis.R': r,
+    'analysis-spec.json': JSON.stringify(config, null, 2), 'data-manifest.json': JSON.stringify(dataManifest, null, 2), 'analysis.R': r,
     'qc-rules.csv': qcRows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n'),
     'README.md': `# NHANES analysis package\n\nStatus: **${config.status}** — generated, not executed.\n\n## Blocking errors\n${readiness.errors.map(x => `- ${x}`).join('\n') || '- None'}\n\n## Warnings\n${readiness.warnings.map(x => `- ${x}`).join('\n') || '- None'}\n\nVerify CDC codebooks, transformations, eligibility, survey weights and all derived variables before running.\n`
   };

@@ -14,6 +14,7 @@ test('analysis package is reproducible and never claims execution',async()=>{
   assert.match(artifact.files['analysis.R'],/WTMEC2YR \/ 6/);
   assert.match(artifact.files['README.md'],/not executed/);
   assert.ok(artifact.files['analysis-spec.json']);
+  assert.ok(artifact.files['data-manifest.json']);
   assert.ok(artifact.files['manifest.json']);
   const archive=createAnalysisArchive(artifact);assert.equal(archive[0],0x1f);assert.match(zlib.gunzipSync(archive).toString('utf8'),/analysis\.R/);
 });
