@@ -1,6 +1,8 @@
 FROM node:24-bookworm-slim AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG DEBIAN_MIRROR=deb.debian.org
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
     r-base-core r-cran-haven r-cran-survey r-cran-jsonlite \
     && rm -rf /var/lib/apt/lists/*
 
