@@ -5,6 +5,7 @@ const {searchPubMed}=require('./src/pubmed');
 const {generateRProject}=require('./src/analysis-package');
 const {createAnalysisArchive}=require('./src/archive');
 const {buildDataManifest,validateDataManifest}=require('./src/data-manifest');
+const {startDataCache,getDataCache}=require('./src/data-cache');
 const {fetchOfficialCatalog}=require('./src/cdc-catalog');
 const {parseQuestion}=require('./src/question-parser');
 const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.md':'text/markdown; charset=utf-8'};
@@ -18,7 +19,7 @@ async function api(req,res,url){
   if(req.method==='POST'&&url.pathname==='/api/tools/parse-question'){const input=await body(req);return json(res,200,parseQuestion(input.question||''))}
   if(req.method==='POST'&&url.pathname==='/api/projects')return json(res,201,createProject(await body(req)));
   if(req.method==='GET'&&url.pathname==='/api/projects')return json(res,200,{items:listProjects(url.searchParams.get('limit'))});
-  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|approve|events|analysis-package|analysis-package-download|data-manifest|data-manifest-validate|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
+  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|approve|events|analysis-package|analysis-package-download|data-manifest|data-manifest-validate|data-cache|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
   const [,projectId,action]=match;
   if(req.method==='GET'&&!action)return json(res,200,getProject(projectId));
   if(req.method==='POST'&&action==='run'){runProject(projectId).catch(console.error);return json(res,202,{projectId,status:'running'})}
@@ -28,6 +29,8 @@ async function api(req,res,url){
   if(req.method==='GET'&&action==='analysis-package-download'){const archive=createAnalysisArchive(generateRProject(getProject(projectId)));res.writeHead(200,{'Content-Type':'application/gzip','Content-Disposition':`attachment; filename="nhanes-${projectId}.tar.gz"`,'Content-Length':archive.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(archive)}
   if(req.method==='GET'&&action==='data-manifest')return json(res,200,buildDataManifest(getProject(projectId)));
   if(req.method==='POST'&&action==='data-manifest-validate')return json(res,200,await validateDataManifest(buildDataManifest(getProject(projectId))));
+  if(req.method==='POST'&&action==='data-cache')return json(res,202,startDataCache(getProject(projectId)));
+  if(req.method==='GET'&&action==='data-cache')return json(res,200,getDataCache(projectId));
   if(req.method==='GET'&&action==='events'){const project=getProject(projectId);res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache',Connection:'keep-alive'});for(const event of project.events)res.write(`data: ${JSON.stringify(event)}\n\n`);const off=subscribe(projectId,event=>res.write(`data: ${JSON.stringify(event)}\n\n`));req.on('close',off);return}
   return json(res,405,{error:{code:'METHOD_NOT_ALLOWED',message:'method not allowed'}})
 }
