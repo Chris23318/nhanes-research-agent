@@ -1,4 +1,8 @@
-FROM node:24-alpine AS runtime
+FROM node:24-bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    r-base-core r-cran-haven r-cran-survey r-cran-jsonlite \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -6,6 +10,7 @@ ENV PORT=4173
 
 COPY --chown=node:node package.json server.js app.js index.html styles.css ./
 COPY --chown=node:node src ./src
+COPY --chown=node:node runner ./runner
 
 USER node
 EXPOSE 4173

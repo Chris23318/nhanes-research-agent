@@ -41,6 +41,8 @@ GET  /api/projects/:id/data-manifest
 POST /api/projects/:id/data-manifest-validate
 GET  /api/projects/:id/data-cache
 POST /api/projects/:id/data-cache
+GET  /api/projects/:id/analysis-run
+POST /api/projects/:id/analysis-run
 GET  /api/catalog/variables?q=vitamin
 GET  /api/catalog/cdc?component=Laboratory&cycle=2017-2018&q=vitamin
 POST /api/tools/pubmed/search

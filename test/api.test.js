@@ -21,6 +21,7 @@ test('project lifecycle reaches the approval gate',async()=>{
   assert.equal(response.status,200);const screened=await response.json();assert.equal(screened.evidence.summary.included,1);assert.equal(screened.protocol.evidenceIncluded,1);
   response=await fetch(`${base}/api/projects/${project.id}/data-manifest`);assert.equal(response.status,200);const dataManifest=await response.json();assert.equal(dataManifest.files.length,24);assert.ok(dataManifest.files.every(file=>file.url.startsWith('https://wwwn.cdc.gov/')));
   response=await fetch(`${base}/api/projects/${project.id}/data-cache`);assert.equal(response.status,200);assert.equal((await response.json()).status,'not_started');
+  response=await fetch(`${base}/api/projects/${project.id}/analysis-run`);assert.equal(response.status,200);assert.equal((await response.json()).status,'not_started');
   response=await fetch(`${base}/api/projects/${project.id}/analysis-package-download`);assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'application/gzip');assert.ok((await response.arrayBuffer()).byteLength>1000);
   response=await fetch(`${base}/api/projects/${project.id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({actor:'tester'})});
   assert.equal(response.status,200);assert.equal((await response.json()).status,'approved');
