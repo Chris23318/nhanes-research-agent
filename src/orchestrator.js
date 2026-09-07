@@ -4,6 +4,7 @@ const { CYCLES, resolveVariables } = require('./catalog');
 const { defaultStore } = require('./store');
 const { parseQuestion } = require('./question-parser');
 const { normalizeEvidence, summarizeEvidence } = require('./evidence');
+const { searchPubMed, buildQuery } = require('./pubmed');
 
 const projects = new Map();
 const bus = new EventEmitter();
@@ -34,7 +35,7 @@ function emit(project, stage, status, message, data) {
   return event;
 }
 
-async function runProject(projectId) {
+async function runProject(projectId, options = {}) {
   const project = getProject(projectId);
   if (project.status === 'running') return project;
   project.status = 'running';
@@ -43,16 +44,23 @@ async function runProject(projectId) {
     project.stage = stage;
     emit(project, stage, 'running', message);
     await delay(120);
-    const data = fn();
+    const data = await fn();
     emit(project, stage, 'completed', `${message}完成`, data);
     return data;
   };
   project.intent = await work('parse', '结构化研究问题', () => project.intent || parseQuestion(project.question));
   project.variables = await work('variables', '匹配 NHANES 变量', () => validateVariableMap(resolveVariables(project.intent)));
-  project.literature = await work('literature', '构建 PubMed 证据集', () => ({
-    query: '(vitamin D[MeSH Terms] OR 25-hydroxyvitamin D) AND (depression[MeSH Terms] OR depressive symptoms) AND (NHANES OR National Health and Nutrition Examination Survey)',
-    mode: 'demo', articles: [], warning: 'Live NCBI E-utilities adapter is not configured; no PMID is presented as verified evidence.'
-  }));
+  project.literature = await work('literature', '自动检索 PubMed 证据', async () => {
+    const input = { exposure: project.intent.exposure?.term || project.intent.exposure?.label, outcome: project.intent.outcome?.term || project.intent.outcome?.label, population: project.intent.population?.label || '', nhanesOnly: true, mode: 'expanded', limit: 10 };
+    const query = buildQuery(input);
+    if (process.env.PUBMED_AUTO_SEARCH === 'false') return { query, mode: 'disabled', articles: [], warning: 'Automated PubMed retrieval is disabled in this environment.' };
+    try {
+      const result = await (options.searchPubMed || searchPubMed)(input, { email: process.env.NCBI_EMAIL, apiKey: process.env.NCBI_API_KEY, tool: 'nhanes_research_agent', timeoutMs: 10000 });
+      return { ...result, mode: 'live', warning: result.compliance?.contactEmailConfigured ? null : 'NCBI contact email is not configured; configure NCBI_EMAIL before high-volume use.' };
+    } catch (error) {
+      return { query, mode: 'unavailable', articles: [], retrievedAt: new Date().toISOString(), source: 'NCBI PubMed E-utilities', warning: `PubMed 自动检索失败：${String(error.message || error).slice(0, 300)}。未生成或伪造任何文献。` };
+    }
+  });
   project.protocol = await work('protocol', '生成统计分析方案', () => ({
     design: 'pooled cross-sectional complex survey', weight: 'WTMEC2YR / 6', primaryModel: 'survey-weighted quasibinomial logistic regression',
     secondary: ['restricted cubic spline', 'sex/age/race interaction tests', 'multiple imputation sensitivity analysis'],
