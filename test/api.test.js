@@ -6,7 +6,7 @@ let base;
 test.before(async()=>{await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${server.address().port}`});
 test.after(()=>server.close());
 
-test('health endpoint exposes the deployed application version',async()=>{const response=await fetch(`${base}/api/health`);assert.equal(response.status,200);const body=await response.json();assert.equal(body.mode,'production-mvp');assert.equal(body.version,'1.6.0')});
+test('health endpoint exposes the deployed application version',async()=>{const response=await fetch(`${base}/api/health`);assert.equal(response.status,200);const body=await response.json();assert.equal(body.mode,'production-mvp');assert.equal(body.version,'1.7.0')});
 
 test('catalog endpoint returns provenance',async()=>{const response=await fetch(`${base}/api/catalog/variables?q=LBXVIDMS`);const body=await response.json();assert.equal(body.items.length,1);assert.equal(body.items[0].provenance.publisher,'CDC/NCHS')});
 

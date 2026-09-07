@@ -43,6 +43,7 @@ GET  /api/projects/:id/data-cache
 POST /api/projects/:id/data-cache
 GET  /api/projects/:id/analysis-run
 POST /api/projects/:id/analysis-run
+GET  /api/projects/:id/analysis-quality
 GET  /api/projects/:id/analysis-result-download
 GET  /api/projects/:id/analysis-report
 GET  /api/catalog/variables?q=vitamin

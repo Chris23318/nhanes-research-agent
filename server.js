@@ -6,21 +6,21 @@ const {generateRProject}=require('./src/analysis-package');
 const {createAnalysisArchive}=require('./src/archive');
 const {buildDataManifest,validateDataManifest}=require('./src/data-manifest');
 const {startDataCache,getDataCache}=require('./src/data-cache');
-const {startAnalysis,getAnalysis,getAnalysisArchive,getAnalysisReport}=require('./src/analysis-runner');
+const {startAnalysis,getAnalysis,getAnalysisArchive,getAnalysisReport,getAnalysisQuality}=require('./src/analysis-runner');
 const {fetchOfficialCatalog}=require('./src/cdc-catalog');
 const {parseQuestion}=require('./src/question-parser');
 const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.md':'text/markdown; charset=utf-8'};
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
 async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
 async function api(req,res,url){
-  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'1.6.0',mode:'production-mvp'});
+  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'1.7.0',mode:'production-mvp'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/variables')return json(res,200,{items:searchCatalog(url.searchParams.get('q')||''),mode:'verified-demo-snapshot'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/cdc'){return json(res,200,await fetchOfficialCatalog({component:url.searchParams.get('component')||'Demographics',cycle:url.searchParams.get('cycle')||'',query:url.searchParams.get('q')||'',limit:url.searchParams.get('limit')||100}))}
   if(req.method==='POST'&&url.pathname==='/api/tools/pubmed/search'){const input=await body(req);return json(res,200,await searchPubMed(input,{email:process.env.NCBI_EMAIL,apiKey:process.env.NCBI_API_KEY,tool:'nhanes_research_agent'}))}
   if(req.method==='POST'&&url.pathname==='/api/tools/parse-question'){const input=await body(req);return json(res,200,parseQuestion(input.question||''))}
   if(req.method==='POST'&&url.pathname==='/api/projects')return json(res,201,createProject(await body(req)));
   if(req.method==='GET'&&url.pathname==='/api/projects')return json(res,200,{items:listProjects(url.searchParams.get('limit'))});
-  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|approve|events|analysis-package|analysis-package-download|analysis-run|analysis-report|analysis-result-download|data-manifest|data-manifest-validate|data-cache|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
+  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|approve|events|analysis-package|analysis-package-download|analysis-run|analysis-quality|analysis-report|analysis-result-download|data-manifest|data-manifest-validate|data-cache|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
   const [,projectId,action]=match;
   if(req.method==='GET'&&!action)return json(res,200,getProject(projectId));
   if(req.method==='POST'&&action==='run'){runProject(projectId).catch(console.error);return json(res,202,{projectId,status:'running'})}
@@ -34,6 +34,7 @@ async function api(req,res,url){
   if(req.method==='GET'&&action==='data-cache')return json(res,200,getDataCache(projectId));
   if(req.method==='POST'&&action==='analysis-run')return json(res,202,startAnalysis(getProject(projectId)));
   if(req.method==='GET'&&action==='analysis-run')return json(res,200,getAnalysis(projectId));
+  if(req.method==='GET'&&action==='analysis-quality')return json(res,200,getAnalysisQuality(projectId));
   if(req.method==='GET'&&action==='analysis-report'){const report=getAnalysisReport(getProject(projectId));res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src data:"});return res.end(report)}
   if(req.method==='GET'&&action==='analysis-result-download'){const archive=getAnalysisArchive(getProject(projectId));res.writeHead(200,{'Content-Type':'application/gzip','Content-Disposition':`attachment; filename="nhanes-results-${projectId}.tar.gz"`,'Content-Length':archive.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(archive)}
   if(req.method==='GET'&&action==='events'){const project=getProject(projectId);res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache',Connection:'keep-alive'});for(const event of project.events)res.write(`data: ${JSON.stringify(event)}\n\n`);const off=subscribe(projectId,event=>res.write(`data: ${JSON.stringify(event)}\n\n`));req.on('close',off);return}
