@@ -3,7 +3,7 @@ const { id, validateQuestion, validateVariableMap, validateTransition, validateA
 const { CYCLES, resolveVariables } = require('./catalog');
 const { defaultStore } = require('./store');
 const { parseQuestion } = require('./question-parser');
-const { normalizeEvidence, summarizeEvidence } = require('./evidence');
+const { normalizeEvidence, summarizeEvidence, summarizeRetrievedEvidence } = require('./evidence');
 const { searchPubMed, buildQuery } = require('./pubmed');
 
 const projects = new Map();
@@ -56,16 +56,20 @@ async function runProject(projectId, options = {}) {
     if (process.env.PUBMED_AUTO_SEARCH === 'false') return { query, mode: 'disabled', articles: [], warning: 'Automated PubMed retrieval is disabled in this environment.' };
     try {
       const result = await (options.searchPubMed || searchPubMed)(input, { email: process.env.NCBI_EMAIL, apiKey: process.env.NCBI_API_KEY, tool: 'nhanes_research_agent', timeoutMs: 10000 });
-      return { ...result, mode: 'live', warning: result.compliance?.contactEmailConfigured ? null : 'NCBI contact email is not configured; configure NCBI_EMAIL before high-volume use.' };
+      return { ...result, mode: 'live', summary: summarizeRetrievedEvidence(result.articles), warning: result.compliance?.contactEmailConfigured ? null : 'NCBI contact email is not configured; configure NCBI_EMAIL before high-volume use.' };
     } catch (error) {
       return { query, mode: 'unavailable', articles: [], retrievedAt: new Date().toISOString(), source: 'NCBI PubMed E-utilities', warning: `PubMed 自动检索失败：${String(error.message || error).slice(0, 300)}。未生成或伪造任何文献。` };
     }
   });
-  project.protocol = await work('protocol', '生成统计分析方案', () => ({
-    design: 'pooled cross-sectional complex survey', weight: 'WTMEC2YR / 6', primaryModel: 'survey-weighted quasibinomial logistic regression',
-    secondary: ['restricted cubic spline', 'sex/age/race interaction tests', 'multiple imputation sensitivity analysis'],
-    approvalRequired: true
-  }));
+  project.protocol = await work('protocol', '结合证据生成统计分析方案', () => {
+    const cycles = project.intent.cycles || [], outcome = String(project.intent.outcome?.term || '').toLowerCase(), recommendations = project.literature.summary?.recommendations || [];
+    const binary = /depress|disease|risk|prevalence|ckd|cardiovascular/.test(outcome);
+    const secondary = new Set(['暴露连续值与分类编码的稳健性比较', '预设亚组交互检验']);
+    if (project.literature.summary?.methodCounts?.['restricted cubic spline']) secondary.add('限制性立方样条非线性分析');
+    if (project.literature.summary?.methodCounts?.['linear regression']) secondary.add('连续结局的 survey-weighted linear regression');
+    secondary.add('完整案例与多重插补敏感性分析');
+    return { schemaVersion: '1.1', design: 'pooled cross-sectional complex survey', estimand: '目标人群中的横断面调整关联', causalInterpretationAllowed: false, weight: `WTMEC2YR / ${cycles.length || 'K'}`, primaryModel: binary ? 'survey-weighted quasibinomial logistic regression' : 'outcome type requires researcher confirmation', secondary: [...secondary], literatureCandidates: project.literature.articles?.length || 0, evidenceMethodRecommendations: recommendations, evidenceStatus: 'provisional_unreviewed', approvalRequired: true };
+  });
   project.status = 'awaiting_approval';
   emit(project, 'protocol', 'blocked', '等待研究者确认方案', { required: ['outcome_definition', 'covariate_set', 'assay_harmonization'] });
   return project;

@@ -38,4 +38,17 @@ function summarizeEvidence(items) {
   return { total: items.length, included: included.length, excluded: excluded.length, uncertain: uncertain.length, methodCounts, publicationTypeCounts, recommendations, warning: '方法汇总来自题名与摘要标签，不替代全文审阅和偏倚风险评价。' };
 }
 
-module.exports = { DECISIONS, normalizeEvidence, summarizeEvidence };
+function summarizeRetrievedEvidence(articles) {
+  const items = Array.isArray(articles) ? articles : [];
+  const methodCounts = counts(items.map(item => Array.isArray(item.methods?.tags) ? item.methods.tags : []));
+  const publicationTypeCounts = counts(items.map(item => Array.isArray(item.publicationTypes) ? item.publicationTypes : []));
+  const recommendations = [];
+  if (methodCounts['survey-weighted analysis']) recommendations.push('既有研究使用复杂抽样方法；主分析应保留权重、分层和 PSU');
+  if (methodCounts['logistic regression']) recommendations.push('二分类结局可采用 survey-weighted logistic regression');
+  if (methodCounts['linear regression']) recommendations.push('连续结局可作为 survey-weighted linear regression 敏感性分析');
+  if (methodCounts['restricted cubic spline']) recommendations.push('预设样条模型评估非线性，避免数据驱动选择切点');
+  if (!recommendations.length) recommendations.push('摘要未提供足够方法信息；方案确认前需要阅读全文');
+  return { provisional: true, total: items.length, methodCounts, publicationTypeCounts, recommendations, warning: '这是对未筛选题名和摘要的自动方法摘要，仅用于提出候选方案；纳入判断和偏倚风险仍需人工复核。' };
+}
+
+module.exports = { DECISIONS, normalizeEvidence, summarizeEvidence, summarizeRetrievedEvidence };
