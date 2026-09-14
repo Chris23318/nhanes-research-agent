@@ -122,7 +122,23 @@ function saveCandidate(projectId, input) {
   return project;
 }
 function listProjects(limit){return defaultStore.list(limit)}
+async function reviewCodebooks(projectId, options = {}) {
+  const project = getProject(projectId);
+  if (project.status !== 'awaiting_approval') { const error = new Error('请在方案待确认时核验代码本'); error.status = 409; throw error; }
+  const selections = structuredClone(project.candidateSelections || []);
+  if (!selections.length || selections.length > 20) { const error = new Error('请选择1至20个候选文件'); error.status = 400; throw error; }
+  const fingerprint = JSON.stringify(project.candidateSelections);
+  const reviews = await Promise.all(selections.map(async selection => {
+    const cycle = selection.cycles[0];
+    try { return await require('./codebook-review').inspectCodebook(selection, cycle, options); }
+    catch (error) { return { variable: selection.variable, file: selection.file, cycle, status: 'retrieval_failed', error: String(error.message).slice(0,200) }; }
+  }));
+  if (project.status !== 'awaiting_approval' || JSON.stringify(project.candidateSelections) !== fingerprint) { const error = new Error('候选选择或方案状态已变化，请重新核验'); error.status = 409; throw error; }
+  project.codebookReviews = reviews;
+  defaultStore.save(project, 'codebooks.retrieved', { total: reviews.length, found: reviews.filter(x=>x.variableFound).length });
+  return project;
+}
 
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
 
-module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, subscribe, projects };
+module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, reviewCodebooks, subscribe, projects };

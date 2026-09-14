@@ -13,6 +13,8 @@ const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css;
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
 async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
 async function api(req,res,url){
+  const codebookRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/codebook-review$/);
+  if(req.method==='POST'&&codebookRoute)return json(res,200,await require('./src/orchestrator').reviewCodebooks(codebookRoute[1]));
   const selectionRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/candidate-selection$/);
   if(req.method==='POST'&&selectionRoute)return json(res,200,require('./src/orchestrator').saveCandidate(selectionRoute[1],await body(req)));
   if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.2.0',mode:'agent-orchestrated-mvp'});

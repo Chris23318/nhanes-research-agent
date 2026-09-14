@@ -1,0 +1,5 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {codebookUrl,inspectCodebook}=require('../src/codebook-review');
+test('codebook URL rejects arbitrary hosts, paths and mismatched cycles',()=>{assert.throws(()=>codebookUrl('../secret','2017-2018'));assert.throws(()=>codebookUrl('DEMO_I','2017-2018'));assert.match(codebookUrl('DEMO_J','2017-2018'),/^https:\/\/wwwn.cdc.gov\//)});
+test('anchor evidence is hashed and remains unapproved',async()=>{const result=await inspectCodebook({file:'DEMO_J',variable:'RIDAGEYR'},'2017-2018',{fetchImpl:async()=>new Response('<h3 id="RIDAGEYR">Age</h3><p>Age in years</p><h3 id="OTHER">Other</h3>')});assert.equal(result.variableFound,true);assert.match(result.excerpt,/Age in years/);assert.equal(result.sha256.length,64);assert.equal(result.status,'researcher_review_required')});
+test('mere mention does not prove variable presence',async()=>{const result=await inspectCodebook({file:'DEMO_J',variable:'RIDAGEYR'},'2017-2018',{fetchImpl:async()=>new Response('<p>See RIDAGEYR elsewhere</p>')});assert.equal(result.variableFound,false)});
