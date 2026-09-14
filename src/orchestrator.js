@@ -6,6 +6,8 @@ const { parseQuestion } = require('./question-parser');
 const { normalizeEvidence, summarizeEvidence, summarizeRetrievedEvidence } = require('./evidence');
 const { searchPubMed, buildQuery } = require('./pubmed');
 const { assessFeasibility } = require('./feasibility');
+const { discoverVariableMap } = require('./variable-discovery');
+const { buildAgentPlan, inferOutcomeType, modelFor } = require('./research-agent');
 
 const projects = new Map();
 const bus = new EventEmitter();
@@ -50,7 +52,12 @@ async function runProject(projectId, options = {}) {
     return data;
   };
   project.intent = await work('parse', '结构化研究问题', () => project.intent || parseQuestion(project.question));
-  project.variables = await work('variables', '匹配 NHANES 变量', () => validateVariableMap(resolveVariables(project.intent)));
+  const variableResult = await work('variables', 'Agent 检索并匹配 NHANES 官方变量', async () => {
+    try { return await discoverVariableMap(project.intent, options); }
+    catch (error) { return { variables: resolveVariables(project.intent), discovery: { mode: 'unavailable', candidates: [], errors: [String(error.message || error).slice(0, 300)] } }; }
+  });
+  project.variables = validateVariableMap(variableResult.variables);
+  project.variableDiscovery = variableResult.discovery;
   project.feasibility = assessFeasibility(project.intent, project.variables);
   project.literature = await work('literature', '自动检索 PubMed 证据', async () => {
     const input = { exposure: project.intent.exposure?.term || project.intent.exposure?.label, outcome: project.intent.outcome?.term || project.intent.outcome?.label, population: project.intent.population?.label || '', nhanesOnly: true, mode: 'expanded', limit: 10 };
@@ -64,14 +71,14 @@ async function runProject(projectId, options = {}) {
     }
   });
   project.protocol = await work('protocol', '结合证据生成统计分析方案', () => {
-    const cycles = project.intent.cycles || [], outcome = String(project.intent.outcome?.term || '').toLowerCase(), recommendations = project.literature.summary?.recommendations || [];
-    const binary = /depress|disease|risk|prevalence|ckd|cardiovascular/.test(outcome);
+    const cycles = project.intent.cycles || [], outcomeType = inferOutcomeType(project.intent), recommendations = project.literature.summary?.recommendations || [];
     const secondary = new Set(['暴露连续值与分类编码的稳健性比较', '预设亚组交互检验']);
     if (project.literature.summary?.methodCounts?.['restricted cubic spline']) secondary.add('限制性立方样条非线性分析');
     if (project.literature.summary?.methodCounts?.['linear regression']) secondary.add('连续结局的 survey-weighted linear regression');
     secondary.add('完整案例与多重插补敏感性分析');
-    return { schemaVersion: '1.1', design: 'pooled cross-sectional complex survey', estimand: '目标人群中的横断面调整关联', causalInterpretationAllowed: false, weight: `WTMEC2YR / ${cycles.length || 'K'}`, primaryModel: binary ? 'survey-weighted quasibinomial logistic regression' : 'outcome type requires researcher confirmation', secondary: [...secondary], literatureCandidates: project.literature.articles?.length || 0, evidenceMethodRecommendations: recommendations, evidenceStatus: 'provisional_unreviewed', approvalRequired: true };
+    return { schemaVersion: '1.2', design: 'pooled cross-sectional complex survey', estimand: '目标人群中的横断面调整关联', causalInterpretationAllowed: false, outcomeType, weight: `WTMEC2YR / ${cycles.length || 'K'}`, primaryModel: modelFor(outcomeType), secondary: [...secondary], literatureCandidates: project.literature.articles?.length || 0, evidenceMethodRecommendations: recommendations, evidenceStatus: 'provisional_unreviewed', approvalRequired: true };
   });
+  project.agentPlan = buildAgentPlan(project);
   project.status = 'awaiting_approval';
   emit(project, 'protocol', 'blocked', '等待研究者确认方案', { required: ['outcome_definition', 'covariate_set', 'assay_harmonization'] });
   return project;
