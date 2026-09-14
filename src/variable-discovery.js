@@ -25,9 +25,10 @@ function rankCatalogItems(items, concept, limit = 5) {
 
 async function catalog(component, options) {
   const key = component;
-  if (cache.has(key)) return cache.get(key);
-  const result = await (options.fetchCatalog || fetchOfficialCatalog)({ component, cycle: '', limit: 500 }, options);
-  cache.set(key, result.items || []);
+  const existing = cache.get(key);
+  if (!options.fetchCatalog && existing && Date.now() - existing.at < 3600000) return existing.items;
+  const result = await (options.fetchCatalog || fetchOfficialCatalog)({ component, cycle: '', limit: 500 }, { ...options, internalDiscovery: true });
+  if (!options.fetchCatalog) cache.set(key, { at: Date.now(), items: result.items || [] });
   return result.items || [];
 }
 
@@ -43,7 +44,10 @@ async function discoverVariableMap(intent, options = {}) {
   const candidates = [];
   for (const role of missing) {
     const concept = intent[role]?.term || intent[role]?.label;
-    const ranked = rankCatalogItems(pool, concept);
+    const selectedCycles = intent.cycles || [];
+    const eligible = pool.map(item => ({ ...item, matchedCycles: selectedCycles.filter(cycle => cycle === `${item.beginYear}-${item.endYear}`), cycleVerification: item.beginYear && item.endYear ? 'catalog_dates' : 'unknown' }))
+      .filter(item => !selectedCycles.length || item.cycleVerification === 'unknown' || item.matchedCycles.length);
+    const ranked = rankCatalogItems(eligible, concept);
     candidates.push({ role, concept, items: ranked, status: ranked.length ? 'researcher_confirmation_required' : 'not_found' });
   }
   return {

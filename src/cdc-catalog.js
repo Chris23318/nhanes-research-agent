@@ -18,7 +18,7 @@ async function fetchOfficialCatalog(input={},options={}){
     const html=await response.text(),rows=[...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)],items=[];
     for(const row of rows){const cells=[...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(x=>clean(x[1]));if(cells.length<8||!cells[0]||cells[0]==='Variable Name')continue;items.push({variable:cells[0],description:cells[1],file:cells[2],fileDescription:cells[3],beginYear:cells[4],endYear:cells[5],component:cells[6],constraints:cells[7]})}
     const query=clean(input.query).toLowerCase(),filtered=query?items.filter(x=>`${x.variable} ${x.description} ${x.file} ${x.fileDescription}`.toLowerCase().includes(query)):items;
-    return{source:'CDC/NCHS NHANES',sourceUrl:url.toString(),retrievedAt:new Date().toISOString(),component:input.component||'Demographics',cycle:input.cycle||'all',items:filtered.slice(0,Math.min(Number(input.limit)||100,500)),totalMatched:filtered.length}
+    return{source:'CDC/NCHS NHANES',sourceUrl:url.toString(),retrievedAt:new Date().toISOString(),component:input.component||'Demographics',cycle:input.cycle||'all',items:options.internalDiscovery?filtered:filtered.slice(0,Math.min(Number(input.limit)||100,500)),totalMatched:filtered.length}
   }finally{clearTimeout(timer)}
 }
 
