@@ -3,6 +3,7 @@ const { id, validateQuestion, validateVariableMap, validateTransition, validateA
 const { CYCLES, resolveVariables } = require('./catalog');
 const { defaultStore } = require('./store');
 const { parseQuestion } = require('./question-parser');
+const { interpretWithModel } = require('./model-runtime');
 const { normalizeEvidence, summarizeEvidence, summarizeRetrievedEvidence } = require('./evidence');
 const { searchPubMed, buildQuery } = require('./pubmed');
 const { assessFeasibility } = require('./feasibility');
@@ -51,7 +52,20 @@ async function runProject(projectId, options = {}) {
     emit(project, stage, 'completed', `${message}完成`, data);
     return data;
   };
-  project.intent = await work('parse', '结构化研究问题', () => project.intent || parseQuestion(project.question));
+  project.intent = await work('parse', '结构化研究问题', async () => {
+    const fallback = project.intent || parseQuestion(project.question);
+    if (process.env.MODEL_AGENT_ENABLED !== 'true') return fallback;
+    try {
+      const result = await interpretWithModel(project.question, options.modelOptions);
+      project.modelTrace = result.trace;
+      const value = result.intent;
+      return { ...fallback, title: `${value.exposure}与${value.outcome}`, exposure: { label: value.exposure, term: value.exposure, component: null, confidence: 0 }, outcome: { label: value.outcome, term: value.outcome, component: null, confidence: 0 }, population: { ...fallback.population, label: value.population.description }, cycles: value.cycles, covariates: value.covariates, ambiguities: [...value.ambiguities, '模型提出的概念、周期及变量定义需要确认'], parser: { mode: 'model-tools', model: result.model, requiresResearcherConfirmation: true } };
+    } catch (error) {
+      const reason = ({ MODEL_INVALID_INTENT: '模型多次返回不合规字段', MODEL_ROUND_LIMIT: '模型达到调用轮次上限', MODEL_NOT_CONFIGURED: '模型尚未配置', MODEL_HTTP_402: '模型账户余额不足' })[error.message] || '模型调用未成功';
+      return { ...fallback, ambiguities: [...fallback.ambiguities, `${reason}，当前采用规则解析`], parser: { ...fallback.parser, modelStatus: 'unavailable', fallbackReason: reason } };
+    }
+  });
+  project.title = project.intent.title;
   const variableResult = await work('variables', 'Agent 检索并匹配 NHANES 官方变量', async () => {
     try { return await discoverVariableMap(project.intent, options); }
     catch (error) { return { variables: resolveVariables(project.intent), discovery: { mode: 'unavailable', candidates: [], errors: [String(error.message || error).slice(0, 300)] } }; }
