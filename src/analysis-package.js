@@ -21,7 +21,7 @@ function generateRProject(project) {
     schemaVersion: '1.0', projectId: project.id, generatedAt: new Date().toISOString(), question: project.question,
     cycles, weightDivisor: cycles.length || null, variables: variables.map(({ role, concept, variable, source, transform, cycles: coverage }) => ({ role, concept, variable, source, transform, cycles: coverage })),
     includedPmids: (project.evidence?.items || []).filter(item => item.decision === 'include').map(item => item.pmid),
-    protocol: project.protocol, dataManifest, readiness, status: readiness.ready ? 'generated_not_executed' : 'blocked_not_executable'
+    protocol: project.protocol, codebookEvidence: project.codebookReviews || [], candidateSelections: project.candidateSelections || [], dataManifest, readiness, status: readiness.ready ? 'generated_not_executed' : 'blocked_not_executable'
   };
   const ageMin = project.intent?.population?.ageMin || 18;
   const r = [

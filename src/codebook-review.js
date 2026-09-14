@@ -14,12 +14,13 @@ async function inspectCodebook(selection, cycle, options = {}) {
   const bytes = Buffer.concat(chunks), html = bytes.toString('utf8');
   const marker = new RegExp(`<(?:a|h[1-6]|div)\\b[^>]*(?:id|name)=["']${selection.variable}["'][^>]*>`, 'i');
   const match = marker.exec(html);
-  let excerpt = '';
+  let excerpt = '', section = '';
   if (match) {
     const tail = html.slice(match.index + match[0].length);
     const end = tail.search(/<h3\b|<div\b[^>]*class=["'][^"']*codebook/i);
+    section = tail.slice(0, end < 0 ? 12000 : Math.min(end,12000));
     excerpt = tail.slice(0, end < 0 ? 12000 : Math.min(end, 12000)).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 8000);
   }
-  return { role: selection.role, variable: selection.variable, file: selection.file, cycle, url, selectedAt: selection.selectedAt, retrievedAt: new Date().toISOString(), sha256: crypto.createHash('sha256').update(bytes).digest('hex'), bytes: size, variableFound: Boolean(match), excerpt, status: match ? 'researcher_review_required' : 'variable_not_found', warning: '仅核验页面及变量锚点。单位、缺失码、适用人群、抽样权重与跨周期一致性仍须确认。' };
+  return { role: selection.role, variable: selection.variable, file: selection.file, cycle, url, selectedAt: selection.selectedAt, retrievedAt: new Date().toISOString(), sha256: crypto.createHash('sha256').update(bytes).digest('hex'), bytes: size, variableFound: Boolean(match), excerpt, fields: match ? require('./codebook-fields').extractFields(section) : null, status: match ? 'researcher_review_required' : 'variable_not_found', warning: '字段按原文提取，尚未批准清洗规则。单位、缺失码、适用人群、抽样权重与跨周期一致性仍须确认。' };
 }
 module.exports = { codebookUrl, inspectCodebook };
