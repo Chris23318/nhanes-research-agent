@@ -5,6 +5,7 @@ const { defaultStore } = require('./store');
 const { parseQuestion } = require('./question-parser');
 const { normalizeEvidence, summarizeEvidence, summarizeRetrievedEvidence } = require('./evidence');
 const { searchPubMed, buildQuery } = require('./pubmed');
+const { assessFeasibility } = require('./feasibility');
 
 const projects = new Map();
 const bus = new EventEmitter();
@@ -50,6 +51,7 @@ async function runProject(projectId, options = {}) {
   };
   project.intent = await work('parse', '结构化研究问题', () => project.intent || parseQuestion(project.question));
   project.variables = await work('variables', '匹配 NHANES 变量', () => validateVariableMap(resolveVariables(project.intent)));
+  project.feasibility = assessFeasibility(project.intent, project.variables);
   project.literature = await work('literature', '自动检索 PubMed 证据', async () => {
     const input = { exposure: project.intent.exposure?.term || project.intent.exposure?.label, outcome: project.intent.outcome?.term || project.intent.outcome?.label, population: project.intent.population?.label || '', nhanesOnly: true, mode: 'expanded', limit: 10 };
     const query = buildQuery(input);
