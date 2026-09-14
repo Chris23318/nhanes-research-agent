@@ -113,8 +113,16 @@ function saveEvidence(projectId, input = {}) {
   return project;
 }
 
+function saveCandidate(projectId, input) {
+  const project = getProject(projectId);
+  const selection = require('./candidate-selection').selectCandidate(project, input);
+  project.candidateSelections = [...(project.candidateSelections || []).filter(x => !(x.role === selection.role && x.file === selection.file)), selection];
+  project.candidateSelectionHistory = [...(project.candidateSelectionHistory || []), selection];
+  defaultStore.save(project, 'candidate.selected', selection);
+  return project;
+}
 function listProjects(limit){return defaultStore.list(limit)}
 
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
 
-module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, subscribe, projects };
+module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, subscribe, projects };
