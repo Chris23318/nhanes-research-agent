@@ -9,15 +9,19 @@ function tokens(value) {
 }
 
 function scoreItem(item, concept) {
-  const haystack = `${item.variable} ${item.description} ${item.file} ${item.fileDescription}`.toLowerCase();
+  const primary = `${item.variable} ${item.description}`.toLowerCase();
+  const context = `${item.file} ${item.fileDescription}`.toLowerCase();
   const words = tokens(concept);
   if (!words.length) return 0;
-  const hits = words.filter(word => haystack.includes(word)).length;
-  return hits / words.length + (hits === words.length ? 0.5 : 0) + (/weight|strata|cluster|psu/.test(haystack) ? -0.25 : 0);
+  const hits = words.filter(word => primary.includes(word)).length;
+  const contextHits = words.filter(word => context.includes(word)).length;
+  const auxiliary = /comment code|quality flag|detection limit|status code/.test(primary);
+  return 3 * hits / words.length + 0.2 * contextHits / words.length + (hits === words.length ? 1 : 0) - (auxiliary ? 1.5 : 0);
 }
 
 function rankCatalogItems(items, concept, limit = 5) {
-  return items.map(item => ({ ...item, score: scoreItem(item, concept) }))
+  const unique = [...new Map(items.map(item => [JSON.stringify([item.variable, item.file, item.beginYear, item.endYear]), item])).values()];
+  return unique.map(item => ({ ...item, score: scoreItem(item, concept) }))
     .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score || a.variable.localeCompare(b.variable))
     .slice(0, limit);

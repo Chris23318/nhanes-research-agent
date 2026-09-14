@@ -8,6 +8,16 @@ const rows = [
   { variable: 'MCQ160C', description: 'Ever told had coronary heart disease', file: 'MCQ_J', fileDescription: 'Medical Conditions', component: 'Questionnaire' }
 ];
 
+test('measurement descriptions outrank shared file titles and comment codes', () => {
+  const context = { file: 'PBCD_J', fileDescription: 'Lead, Cadmium, Total Mercury, Selenium, & Manganese - Blood' };
+  const candidates = [
+    { ...context, variable: 'LBDBCDSI', description: 'Blood cadmium (nmol/L)' },
+    { ...context, variable: 'LBDBPBLC', description: 'Blood lead comment code' },
+    { ...context, variable: 'LBXBPB', description: 'Blood lead (ug/dL)' }
+  ];
+  assert.equal(rankCatalogItems(candidates, 'blood lead')[0].variable, 'LBXBPB');
+});
+
 test('official catalog candidates are ranked by the research concept', () => {
   assert.equal(rankCatalogItems(rows, 'sleep duration')[0].variable, 'SLD012');
   assert.equal(rankCatalogItems(rows, 'cardiovascular disease')[0].variable, 'MCQ160C');
