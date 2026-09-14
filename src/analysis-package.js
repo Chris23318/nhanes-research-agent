@@ -57,6 +57,9 @@ function generateRProject(project) {
     'qc-rules.csv': qcRows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n'),
     'README.md': `# NHANES analysis package\n\nStatus: **${config.status}** — generated, not executed.\n\n## Blocking errors\n${readiness.errors.map(x => `- ${x}`).join('\n') || '- None'}\n\n## Warnings\n${readiness.warnings.map(x => `- ${x}`).join('\n') || '- None'}\n\nVerify CDC codebooks, transformations, eligibility, survey weights and all derived variables before running.\n`
   };
+  const cleaning = require('./cleaning-draft').buildCleaningDraft(project);
+  files['cleaning-draft.R'] = cleaning.code;
+  files['cleaning-rules.json'] = JSON.stringify({ ...cleaning, code: undefined }, null, 2);
   const manifest = Object.entries(files).map(([name, content]) => ({ name, bytes: Buffer.byteLength(content), sha256: crypto.createHash('sha256').update(content).digest('hex') }));
   files['manifest.json'] = JSON.stringify({ generatedAt: config.generatedAt, files: manifest }, null, 2);
   return { status: config.status, readiness, files };

@@ -1,0 +1,5 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {buildCleaningDraft}=require('../src/cleaning-draft');
+function fixture(){return {candidateSelections:[{variable:'DPQ010',file:'DPQ_J',cycles:['2017-2018'],selectedAt:'v1'}],codebookReviews:[{variable:'DPQ010',file:'DPQ_J',cycle:'2017-2018',selectedAt:'v1',variableFound:true,fields:{missingCodes:[{code:'7'},{code:'9'},{code:'.'}]},sha256:'hash',url:'https://wwwn.cdc.gov/'}]}}
+test('draft uses explicit missing codes and requires digest approval',()=>{const result=buildCleaningDraft(fixture());assert.deepEqual(result.rules[0].missingCodes,[7,9]);assert.match(result.code,/approved_digest/);assert.match(result.code,/recoded = sum/);assert.equal(result.blockers.length,0)});
+test('stale evidence and code injection cannot generate a rule',()=>{const p=fixture();p.codebookReviews[0].selectedAt='old';assert.equal(buildCleaningDraft(p).rules.length,0);p.codebookReviews[0].selectedAt='v1';p.codebookReviews[0].fields.missingCodes=[{code:'system("id")'}];assert.equal(buildCleaningDraft(p).rules.length,0)});
