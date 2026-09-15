@@ -13,6 +13,8 @@ const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css;
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
 async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
 async function api(req,res,url){
+  const modelSpecRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/model-spec$/);
+  if(req.method==='POST'&&modelSpecRoute)return json(res,200,require('./src/orchestrator').approveModelSpec(modelSpecRoute[1],await body(req)));
   const cleaningRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/cleaning-(draft|approval)$/);
   if(req.method==='GET'&&cleaningRoute&&cleaningRoute[2]==='draft')return json(res,200,require('./src/cleaning-draft').buildCleaningDraft(require('./src/orchestrator').getProject(cleaningRoute[1])));
   if(req.method==='POST'&&cleaningRoute&&cleaningRoute[2]==='approval')return json(res,200,require('./src/orchestrator').approveCleaning(cleaningRoute[1],await body(req)));

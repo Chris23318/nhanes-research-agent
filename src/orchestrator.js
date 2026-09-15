@@ -107,6 +107,7 @@ function approveProject(projectId, input = {}) {
 
 function saveEvidence(projectId, input = {}) {
   const project = getProject(projectId), items = normalizeEvidence(input.items);
+  delete project.modelSpec;
   project.evidence = { query: String(input.query || '').slice(0, 5000), retrievedAt: input.retrievedAt || null, screenedAt: new Date().toISOString(), items, summary: summarizeEvidence(items) };
   project.protocol = { ...(project.protocol || {}), evidenceBasedRecommendations: project.evidence.summary.recommendations, evidenceIncluded: project.evidence.summary.included, evidenceUpdatedAt: project.evidence.screenedAt, approvalRequired: true };
   defaultStore.save(project, 'evidence.screened', { included: project.evidence.summary.included, excluded: project.evidence.summary.excluded, uncertain: project.evidence.summary.uncertain });
@@ -118,6 +119,7 @@ function saveCandidate(projectId, input) {
   const selection = require('./candidate-selection').selectCandidate(project, input);
   project.variables = (project.variables || []).filter(item => item.confirmationStatus !== 'codebook_and_cleaning_approved');
   delete project.cleaningApproval;
+  delete project.modelSpec;
   project.codebookReviews = [];
   project.candidateSelections = [...(project.candidateSelections || []).filter(x => !(x.role === selection.role && x.file === selection.file)), selection];
   project.candidateSelectionHistory = [...(project.candidateSelectionHistory || []), selection];
@@ -137,6 +139,9 @@ async function reviewCodebooks(projectId, options = {}) {
     catch (error) { return { variable: selection.variable, file: selection.file, cycle, status: 'retrieval_failed', error: String(error.message).slice(0,200) }; }
   }));
   if (project.status !== 'awaiting_approval' || JSON.stringify(project.candidateSelections) !== fingerprint) { const error = new Error('候选选择或方案状态已变化，请重新核验'); error.status = 409; throw error; }
+  project.variables = (project.variables || []).filter(item => item.confirmationStatus !== 'codebook_and_cleaning_approved');
+  delete project.cleaningApproval;
+  delete project.modelSpec;
   project.codebookReviews = reviews;
   defaultStore.save(project, 'codebooks.retrieved', { total: reviews.length, found: reviews.filter(x=>x.variableFound).length });
   return project;
@@ -144,6 +149,7 @@ async function reviewCodebooks(projectId, options = {}) {
 
 function approveCleaning(projectId, input = {}) {
   const project = getProject(projectId);
+  delete project.modelSpec;
   const result = require('./cleaning-approval').approveCleaningDraft(project, input);
   project.feasibility = assessFeasibility(project.intent, project.variables);
   project.agentPlan = buildAgentPlan(project);
@@ -151,6 +157,13 @@ function approveCleaning(projectId, input = {}) {
   return project;
 }
 
+function approveModelSpec(projectId, input = {}) {
+  const project = getProject(projectId);
+  project.modelSpec = require('./model-spec').createModelSpec(project, input);
+  defaultStore.save(project, 'model_spec.approved', { digest:project.modelSpec.digest, actor:project.modelSpec.actor, outcomeFamily:project.modelSpec.outcomeFamily });
+  return project;
+}
+
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
 
-module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, reviewCodebooks, approveCleaning, subscribe, projects };
+module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, reviewCodebooks, approveCleaning, approveModelSpec, subscribe, projects };

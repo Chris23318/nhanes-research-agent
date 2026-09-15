@@ -9,6 +9,9 @@ function assessReadiness(project) {
   if (!project.intent?.cycles?.length) errors.push('NHANES cycles are not defined');
   if (!variables.some(item => item.variable === 'WTMEC2YR')) errors.push('MEC examination weight is not confirmed');
   if (!variables.some(item => item.variable === 'SDMVSTRA') || !variables.some(item => item.variable === 'SDMVPSU')) errors.push('survey strata or PSU is not confirmed');
+  const usesReviewedMappings = variables.some(item => item.confirmationStatus === 'codebook_and_cleaning_approved');
+  if (usesReviewedMappings && !project.modelSpec) errors.push('statistical model specification is not approved');
+  if (project.modelSpec && project.modelSpec.cleaningDigest !== project.cleaningApproval?.digest) errors.push('model specification does not match the current cleaning approval');
   if (!project.evidence?.summary?.included) warnings.push('no screened PubMed evidence has been included');
   for (const ambiguity of project.intent?.ambiguities || []) warnings.push(ambiguity);
   return { ready: errors.length === 0, errors, warnings };
@@ -21,7 +24,7 @@ function generateRProject(project) {
     schemaVersion: '1.0', projectId: project.id, generatedAt: new Date().toISOString(), question: project.question,
     cycles, weightDivisor: cycles.length || null, variables: variables.map(({ role, concept, variable, source, transform, cycles: coverage }) => ({ role, concept, variable, source, transform, cycles: coverage })),
     includedPmids: (project.evidence?.items || []).filter(item => item.decision === 'include').map(item => item.pmid),
-    protocol: project.protocol, codebookEvidence: project.codebookReviews || [], candidateSelections: project.candidateSelections || [], dataManifest, readiness, status: readiness.ready ? 'generated_not_executed' : 'blocked_not_executable'
+    protocol: project.protocol, modelSpec: project.modelSpec || null, codebookEvidence: project.codebookReviews || [], candidateSelections: project.candidateSelections || [], dataManifest, readiness, status: readiness.ready ? 'generated_not_executed' : 'blocked_not_executable'
   };
   const ageMin = project.intent?.population?.ageMin || 18;
   const r = [
@@ -61,6 +64,7 @@ function generateRProject(project) {
   files['cleaning-draft.R'] = cleaning.code;
   files['cleaning-rules.json'] = JSON.stringify({ ...cleaning, code: undefined }, null, 2);
   files['prepare-data.R'] = require('./data-preparation').generatePreparationScript(dataManifest, cleaning);
+  files['model.R'] = require('./model-script').generateModelScript(project.modelSpec);
   const manifest = Object.entries(files).map(([name, content]) => ({ name, bytes: Buffer.byteLength(content), sha256: crypto.createHash('sha256').update(content).digest('hex') }));
   files['manifest.json'] = JSON.stringify({ generatedAt: config.generatedAt, files: manifest }, null, 2);
   return { status: config.status, readiness, files };

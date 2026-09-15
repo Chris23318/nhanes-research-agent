@@ -26,3 +26,14 @@ test('analysis package blocks unconfirmed exposure and outcome variables',async(
   assert.equal(artifact.status,'blocked_not_executable');
   assert.ok(artifact.readiness.errors.some(x=>x.includes('exposure')));
 });
+
+test('reviewed dynamic mappings require a matching frozen model specification',()=>{
+  const project={protocol:{},intent:{cycles:['2017-2018']},variables:[
+    {role:'exposure',variable:'X',confirmationStatus:'codebook_and_cleaning_approved'},
+    {role:'outcome',variable:'Y'},{role:'design',variable:'WTMEC2YR'},{role:'design',variable:'SDMVSTRA'},{role:'design',variable:'SDMVPSU'}
+  ],cleaningApproval:{digest:'clean'}};
+  let artifact=generateRProject(project);
+  assert.ok(artifact.readiness.errors.some(x=>x.includes('model specification')));
+  project.modelSpec={cleaningDigest:'old'};artifact=generateRProject(project);
+  assert.ok(artifact.readiness.errors.some(x=>x.includes('does not match')));
+});
