@@ -52,3 +52,39 @@ jobs:
           platforms: linux/amd64
           provenance: mode=max
           sbom: true
+
+  deploy-aliyun:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ALIYUN_AUTO_DEPLOY == 'true'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Configure restricted SSH credentials
+        env:
+          DEPLOY_KEY: ${{ secrets.ALIYUN_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.ALIYUN_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/aliyun_deploy"
+          chmod 600 "$HOME/.ssh/aliyun_deploy"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+      - name: Stream verified release to Aliyun
+        env:
+          ALIYUN_HOST: ${{ secrets.ALIYUN_HOST }}
+        run: |
+          git archive --format=tar.gz --output=release.tar.gz "$GITHUB_SHA"
+          ssh \
+            -i "$HOME/.ssh/aliyun_deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            root@"$ALIYUN_HOST" \
+            "deploy $GITHUB_SHA" < release.tar.gz
+      - name: Remove runner credentials
+        if: always()
+        run: rm -f "$HOME/.ssh/aliyun_deploy" release.tar.gz
