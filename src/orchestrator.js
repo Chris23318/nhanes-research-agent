@@ -116,6 +116,9 @@ function saveEvidence(projectId, input = {}) {
 function saveCandidate(projectId, input) {
   const project = getProject(projectId);
   const selection = require('./candidate-selection').selectCandidate(project, input);
+  project.variables = (project.variables || []).filter(item => item.confirmationStatus !== 'codebook_and_cleaning_approved');
+  delete project.cleaningApproval;
+  project.codebookReviews = [];
   project.candidateSelections = [...(project.candidateSelections || []).filter(x => !(x.role === selection.role && x.file === selection.file)), selection];
   project.candidateSelectionHistory = [...(project.candidateSelectionHistory || []), selection];
   defaultStore.save(project, 'candidate.selected', selection);
@@ -139,6 +142,15 @@ async function reviewCodebooks(projectId, options = {}) {
   return project;
 }
 
+function approveCleaning(projectId, input = {}) {
+  const project = getProject(projectId);
+  const result = require('./cleaning-approval').approveCleaningDraft(project, input);
+  project.feasibility = assessFeasibility(project.intent, project.variables);
+  project.agentPlan = buildAgentPlan(project);
+  defaultStore.save(project, 'cleaning.approved', { digest: project.cleaningApproval.digest, ruleCount: result.mappings.length, actor: project.cleaningApproval.actor });
+  return project;
+}
+
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
 
-module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, reviewCodebooks, subscribe, projects };
+module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, reviewCodebooks, approveCleaning, subscribe, projects };

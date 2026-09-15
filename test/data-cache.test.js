@@ -8,6 +8,9 @@ const { assertOfficialFile, downloadFile, startDataCache, getDataCache } = requi
 test('cache rejects URLs outside the fixed CDC XPT allowlist', () => {
   assert.throws(() => assertOfficialFile({ url: 'https://example.com/DEMO_J.XPT' }), /approved CDC/);
   assert.doesNotThrow(() => assertOfficialFile({ url: 'https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/DEMO_J.XPT' }));
+  assert.doesNotThrow(() => assertOfficialFile({ url: 'https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/PBCD_J.XPT' }));
+  assert.throws(() => assertOfficialFile({ url: 'https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/../secret_J.XPT' }), /approved CDC/);
+  assert.throws(() => assertOfficialFile({ url: 'https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/PBCD_J.XPT?redirect=1' }), /approved CDC/);
 });
 
 test('cache streams a valid XPT file and records its digest', async () => {

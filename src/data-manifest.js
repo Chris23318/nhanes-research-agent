@@ -14,8 +14,18 @@ function buildDataManifest(project) {
       files.push({ cycle, component: source, code, format: 'SAS XPT', url: `${base}.XPT`, documentationUrl: `${base}.htm`, requiredJoinKey: 'SEQN' });
     }
   }
+  for (const item of project.variables || []) {
+    if (item.confirmationStatus !== 'codebook_and_cleaning_approved' || !/^[A-Z][A-Z0-9_]{1,40}$/.test(item.sourceFile || '')) continue;
+    for (const cycle of item.cycles || []) {
+      const suffix = SUFFIXES[cycle];
+      if (!suffix || !cycles.includes(cycle) || !item.sourceFile.endsWith(`_${suffix}`)) continue;
+      const code = item.sourceFile, year = cycle.slice(0, 4), base = `https://${CDC_HOST}/Nchs/Data/Nhanes/Public/${year}/DataFiles/${code}`;
+      files.push({ cycle, component: item.source, code, format: 'SAS XPT', url: `${base}.XPT`, documentationUrl: `${base}.htm`, requiredJoinKey: 'SEQN', mappingStatus: item.confirmationStatus });
+    }
+  }
+  const uniqueFiles = [...new Map(files.map(file => [`${file.cycle}:${file.code}`, file])).values()];
   return {
-    schemaVersion: '1.0', publisher: 'CDC/NCHS', generatedAt: new Date().toISOString(), cycles, files,
+    schemaVersion: '1.1', publisher: 'CDC/NCHS', generatedAt: new Date().toISOString(), cycles, files: uniqueFiles,
     analyticNotes: sources.includes('VID') ? [{ topic: 'Vitamin D', rule: 'Use total 25(OH)D LBXVIDMS in nmol/L for 2007-2018; do not sum mass concentrations.', url: 'https://wwwn.cdc.gov/Nchs/Nhanes/VitaminD/AnalyticalNote.aspx' }] : [],
     warning: 'Availability validation checks the official file signature and size; variable values and cycle-specific codebooks still require review.'
   };

@@ -18,3 +18,8 @@ test('data validation checks XPT signature and reported size', async () => {
   const result = await validateDataManifest(manifest, { fetchImpl, timeoutMs: 100 });
   assert.equal(result.summary.valid, 1); assert.equal(result.summary.totalBytes, 604400);
 });
+
+test('approved dynamic files enter the fixed CDC manifest without duplicates',()=>{
+  const project={intent:{cycles:['2017-2018']},variables:[{source:'DEMO',cycles:['2017-2018']},{source:'PBCD',sourceFile:'PBCD_J',cycles:['2017-2018'],confirmationStatus:'codebook_and_cleaning_approved'},{source:'PBCD',sourceFile:'PBCD_J',cycles:['2017-2018'],confirmationStatus:'codebook_and_cleaning_approved'}]};
+  const manifest=buildDataManifest(project);assert.deepEqual(manifest.files.map(x=>x.code).sort(),['DEMO_J','PBCD_J']);assert.ok(manifest.files.every(x=>new URL(x.url).hostname==='wwwn.cdc.gov'));
+});
