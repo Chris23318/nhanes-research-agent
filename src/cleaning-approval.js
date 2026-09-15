@@ -13,7 +13,7 @@ function approveCleaningDraft(project, input = {}) {
     const selection = selections.find(item => item.variable === rule.variable && item.file === rule.file && item.cycles.includes(rule.cycle));
     if (!selection) fail(`找不到当前候选记录：${rule.variable}`, 409);
     return {
-      role: selection.role, concept: selection.description || project.intent?.[selection.role]?.label || selection.variable,
+      role: selection.role, concept: selection.concept || selection.description || project.intent?.[selection.role]?.label || selection.variable,
       variable: rule.variable, source: rule.file.replace(/_[A-Z]$/, ''), sourceFile: rule.file,
       transform: `missing codes: ${rule.missingCodes.join(', ') || 'SAS missing only'}; unit: ${rule.unit || 'researcher confirmed from codebook'}`,
       confidence: 0.8, cycles: [rule.cycle], confirmationStatus: 'codebook_and_cleaning_approved',

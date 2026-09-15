@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { rankCatalogItems, discoverVariableMap } = require('../src/variable-discovery');
+const { rankCatalogItems, covariateSearchTerm, discoverVariableMap } = require('../src/variable-discovery');
 const { parseQuestion } = require('../src/question-parser');
 
 const rows = [
@@ -28,6 +28,7 @@ test('agent discovers candidates without pretending they are confirmed variables
   const result = await discoverVariableMap(intent, { fetchCatalog: async () => ({ items: rows }) });
   assert.equal(result.discovery.mode, 'official_cdc_catalog');
   assert.equal(result.variables.some(x => x.role === 'exposure'), false);
-  assert.equal(result.discovery.candidates.length, 2);
-  assert.ok(result.discovery.candidates.every(x => x.status === 'researcher_confirmation_required'));
+  assert.ok(result.discovery.candidates.length >= 2);
+  assert.ok(result.discovery.candidates.filter(x=>['exposure','outcome'].includes(x.role)).every(x => x.status === 'researcher_confirmation_required'));
 });
+test('common Chinese covariates map to explicit CDC search terms',()=>{assert.match(covariateSearchTerm('年龄'),/RIDAGEYR/);assert.match(covariateSearchTerm('贫困收入比'),/INDFMPIR/);assert.match(covariateSearchTerm('BMI'),/BMXBMI/)});

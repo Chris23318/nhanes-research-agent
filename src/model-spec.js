@@ -1,5 +1,5 @@
 const crypto = require('node:crypto');
-const CORE_KEYS = ['schemaVersion','outcomeFamily','exposureTransform','outcomeTransform','outcomeThreshold','population','weightVariable','strataVariable','psuVariable','cycles','exposureMappings','outcomeMappings','covariates','associationOnly','cleaningDigest'];
+const CORE_KEYS = ['schemaVersion','outcomeFamily','exposureTransform','outcomeTransform','outcomeThreshold','population','weightVariable','weightChoiceConfirmed','strataVariable','psuVariable','cycles','exposureMappings','outcomeMappings','covariates','associationOnly','cleaningDigest'];
 function digestCore(core) { return crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex'); }
 function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const core=Object.fromEntries(CORE_KEYS.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
 
@@ -17,6 +17,7 @@ function createModelSpec(project, input = {}) {
   const populationAgeMin = Number(input.populationAgeMin);
   if (!Number.isFinite(populationAgeMin) || populationAgeMin < 0 || populationAgeMin > 85) fail('最低年龄必须是 0 至 85 岁');
   if (input.acknowledgeAssociationOnly !== true) fail('必须确认横断面结果仅解释为关联');
+  if (input.acknowledgeWeightChoice !== true) fail('必须确认所选权重适用于最小分析子样本');
   const variables = project.variables || [], cycles = project.intent?.cycles || [];
   if (!cycles.length) fail('至少需要一个 NHANES 周期', 409);
   const roleMappings = role => variables.filter(item => item.role === role && item.confirmationStatus === 'codebook_and_cleaning_approved');
@@ -36,13 +37,12 @@ function createModelSpec(project, input = {}) {
   const requested = Array.isArray(input.covariates) ? input.covariates : [];
   if (requested.length > 30) fail('协变量不能超过30个');
   const covariates = requested.map(item => {
-    if (!item || typeof item.variable !== 'string' || !['continuous', 'factor'].includes(item.encoding)) fail('协变量编码无效');
-    const mapping = variables.find(value => value.role === 'covariate' && value.variable === item.variable && value.confirmationStatus === 'codebook_and_cleaning_approved' && cycles.every(cycle => value.cycles?.includes(cycle)));
-    if (!mapping) fail(`协变量未映射全部周期：${item.variable}`);
-    return { variable: mapping.variable, encoding: item.encoding };
+    if (!item || typeof item.concept !== 'string' || !item.concept.trim() || !['continuous', 'factor'].includes(item.encoding)) fail('协变量编码无效');
+    const mappings=cycles.map(cycle=>{const candidates=variables.filter(value=>value.role==='covariate'&&value.concept===item.concept&&value.confirmationStatus==='codebook_and_cleaning_approved'&&value.cycles?.includes(cycle)),selected=item.byCycle?.[cycle]?candidates.find(value=>value.variable===item.byCycle[cycle]):candidates.length===1?candidates[0]:null;if(!selected)fail(candidates.length>1?`协变量 ${item.concept} 在 ${cycle} 有多个候选`:`协变量未映射全部周期：${item.concept}`);return {variable:selected.variable,sourceFile:selected.sourceFile,cycles:[cycle]}});
+    return { concept:item.concept, encoding: item.encoding, mappings };
   });
-  if (new Set(covariates.map(item => item.variable)).size !== covariates.length) fail('协变量不能重复');
-  const core = { schemaVersion:'1.1', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest };
+  if (new Set(covariates.map(item => item.concept)).size !== covariates.length) fail('协变量不能重复');
+  const core = { schemaVersion:'1.1', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, weightChoiceConfirmed:true, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest };
   return { ...core, digest:digestCore(core), status:'approved_for_code_generation_not_execution', approvedAt:new Date().toISOString(), actor:typeof input.actor==='string'&&input.actor.trim()?input.actor.trim().slice(0,100):'researcher' };
 }
 

@@ -120,29 +120,39 @@ function saveEvidence(projectId, input = {}) {
 function saveCandidate(projectId, input) {
   const project = getProject(projectId);
   const selection = require('./candidate-selection').selectCandidate(project, input);
+  applyCandidateSelections(project,[selection]);
+  defaultStore.save(project, 'candidate.selected', selection);
+  return project;
+}
+function applyCandidateSelections(project,selections){
   project.variables = (project.variables || []).filter(item => item.confirmationStatus !== 'codebook_and_cleaning_approved');
   delete project.cleaningApproval;
   delete project.modelSpec;
   project.codebookReviews = [];
-  project.candidateSelections = [...(project.candidateSelections || []).filter(x => !(x.role === selection.role && x.file === selection.file)), selection];
-  project.candidateSelectionHistory = [...(project.candidateSelectionHistory || []), selection];
+  let current=[...(project.candidateSelections||[])];
+  for(const selection of selections) current=[...current.filter(x=>!(x.role===selection.role&&x.concept===selection.concept&&x.file===selection.file)),selection];
+  project.candidateSelections=current;
+  project.candidateSelectionHistory = [...(project.candidateSelectionHistory || []), ...selections];
   project.feasibility = assessFeasibility(project.intent, project.variables);
   project.agentPlan = buildAgentPlan(project);
-  defaultStore.save(project, 'candidate.selected', selection);
-  return project;
+}
+function saveCandidates(projectId,input={}){
+  const project=getProject(projectId),items=Array.isArray(input.items)?input.items:[];
+  if(input.acknowledgeRecommendations!==true){const error=new Error('请先确认已查看 Agent 推荐候选');error.status=400;throw error}
+  if(!items.length||items.length>60){const error=new Error('批量候选必须为1至60项');error.status=400;throw error}
+  const selections=items.map(item=>require('./candidate-selection').selectCandidate(project,item));
+  applyCandidateSelections(project,selections);defaultStore.save(project,'candidates.selected',{count:selections.length,roles:[...new Set(selections.map(x=>x.role))]});return project;
 }
 function listProjects(limit){return defaultStore.list(limit)}
 async function reviewCodebooks(projectId, options = {}) {
   const project = getProject(projectId);
   if (project.status !== 'awaiting_approval') { const error = new Error('请在方案待确认时核验代码本'); error.status = 409; throw error; }
   const selections = structuredClone(project.candidateSelections || []);
-  if (!selections.length || selections.length > 20) { const error = new Error('请选择1至20个候选文件'); error.status = 400; throw error; }
+  if (!selections.length || selections.length > 60) { const error = new Error('请选择1至60个候选文件'); error.status = 400; throw error; }
   const fingerprint = JSON.stringify(project.candidateSelections);
-  const reviews = await Promise.all(selections.map(async selection => {
-    const cycle = selection.cycles[0];
-    try { return await require('./codebook-review').inspectCodebook(selection, cycle, options); }
-    catch (error) { return { variable: selection.variable, file: selection.file, cycle, status: 'retrieval_failed', error: String(error.message).slice(0,200) }; }
-  }));
+  const reviews=new Array(selections.length);let cursor=0;
+  const worker=async()=>{for(;;){const index=cursor++;if(index>=selections.length)return;const selection=selections[index],cycle=selection.cycles[0];try{reviews[index]=await require('./codebook-review').inspectCodebook(selection,cycle,options)}catch(error){reviews[index]={variable:selection.variable,file:selection.file,cycle,status:'retrieval_failed',error:String(error.message).slice(0,200)}}}};
+  await Promise.all(Array.from({length:Math.min(6,selections.length)},worker));
   if (project.status !== 'awaiting_approval' || JSON.stringify(project.candidateSelections) !== fingerprint) { const error = new Error('候选选择或方案状态已变化，请重新核验'); error.status = 409; throw error; }
   project.variables = (project.variables || []).filter(item => item.confirmationStatus !== 'codebook_and_cleaning_approved');
   delete project.cleaningApproval;
@@ -175,4 +185,4 @@ function approveModelSpec(projectId, input = {}) {
 
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
 
-module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, reviewCodebooks, approveCleaning, approveModelSpec, subscribe, projects };
+module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, saveCandidates, reviewCodebooks, approveCleaning, approveModelSpec, subscribe, projects };

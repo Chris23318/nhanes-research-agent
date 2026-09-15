@@ -9,7 +9,7 @@ function generateModelScript(spec) {
   if (!spec) return '# Statistical model has not been approved.\nstop("Approve model specification first")\n';
   if (!Array.isArray(spec.exposureMappings) || !Array.isArray(spec.outcomeMappings) || !Array.isArray(spec.covariates) || !Array.isArray(spec.cycles) || !Number.isFinite(spec.population?.ageMin)) return '# Statistical model specification is invalid.\nstop("Regenerate model specification")\n';
   const exposure = cycleExpression(spec.exposureMappings), outcome = cycleExpression(spec.outcomeMappings);
-  const covariates = spec.covariates.map((item,index)=>({name:`cov_${index+1}`,variable:safe(item.variable),encoding:item.encoding}));
+  const covariates = spec.covariates.map((item,index)=>({name:`cov_${index+1}`,mappings:item.mappings,encoding:item.encoding}));
   const formula = `analysis_outcome ~ ${['analysis_exposure',...covariates.map(x=>x.name)].join(' + ')}`;
   const exposureTransform = spec.exposureTransform === 'log2' ? ['if (any(analytic$analysis_exposure <= 0, na.rm=TRUE)) stop("log2 exposure requires positive values")','analytic$analysis_exposure <- log2(analytic$analysis_exposure)'] : spec.exposureTransform === 'per_sd' ? ['scale_value <- sd(analytic$analysis_exposure,na.rm=TRUE)','if (!is.finite(scale_value) || scale_value <= 0) stop("Exposure SD is invalid")','analytic$analysis_exposure <- analytic$analysis_exposure / scale_value'] : [];
   const outcomeTransform = spec.outcomeTransform === 'threshold_ge' ? [`analytic$analysis_outcome <- as.integer(analytic$analysis_outcome >= ${spec.outcomeThreshold})`] : spec.outcomeTransform === 'threshold_eq' ? [`analytic$analysis_outcome <- as.integer(analytic$analysis_outcome == ${spec.outcomeThreshold})`] : [];
@@ -24,7 +24,7 @@ function generateModelScript(spec) {
     'population_n <- nrow(analytic)',
     `analytic$analysis_exposure <- ${exposure}`, `analytic$analysis_outcome <- ${outcome}`,
     ...outcomeTransform,
-    ...covariates.map(x=>`analytic$${x.name} <- ${x.encoding==='factor'?`factor(analytic[["${x.variable}"]])`:`as.numeric(analytic[["${x.variable}"]])`}`),
+    ...covariates.map(x=>`analytic$${x.name} <- ${x.encoding==='factor'?`factor(${cycleExpression(x.mappings)})`:`as.numeric(${cycleExpression(x.mappings)})`}`),
     ...exposureTransform,
     `analytic$analysis_weight <- as.numeric(analytic[["${safe(spec.weightVariable)}"]]) / ${spec.cycles.length}`,
     `required <- c("analysis_outcome","analysis_exposure","analysis_weight","${safe(spec.strataVariable)}","${safe(spec.psuVariable)}"${covariates.map(x=>`,"${x.name}"`).join('')})`,
