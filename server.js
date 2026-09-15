@@ -7,11 +7,12 @@ const {createAnalysisArchive}=require('./src/archive');
 const {buildDataManifest,validateDataManifest}=require('./src/data-manifest');
 const {startDataCache,getDataCache}=require('./src/data-cache');
 const {startAnalysis,getAnalysis,getAnalysisArchive,getAnalysisReport,getAnalysisQuality}=require('./src/analysis-runner');
+const {startFullExecution,getFullExecution}=require('./src/full-execution');
 const {fetchOfficialCatalog}=require('./src/cdc-catalog');
 const {parseQuestion}=require('./src/question-parser');
 const {SECURITY_HEADERS,createRateLimiter}=require('./src/http-security');
 const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.md':'text/markdown; charset=utf-8'};
-const limiter=createRateLimiter(),heavy=/\/(?:run|codebook-review|data-manifest-validate|data-cache|analysis-run)$|\/api\/tools\/(?:pubmed\/search|parse-question)$/;
+const limiter=createRateLimiter(),heavy=/\/(?:run|execute|codebook-review|data-manifest-validate|data-cache|analysis-run)$|\/api\/tools\/(?:pubmed\/search|parse-question)$/;
 function enforceRate(req,url){const key=req.socket.remoteAddress||'unknown',normal=limiter.check(key,'all',300,60000);if(!normal.allowed)return normal;if(req.method==='POST'&&heavy.test(url.pathname))return limiter.check(key,'heavy',20,600000);return normal}
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
 async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
@@ -25,17 +26,19 @@ async function api(req,res,url){
   if(req.method==='POST'&&codebookRoute)return json(res,200,await require('./src/orchestrator').reviewCodebooks(codebookRoute[1]));
   const selectionRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/candidate-selection$/);
   if(req.method==='POST'&&selectionRoute){const input=await body(req);return json(res,200,Array.isArray(input.items)?require('./src/orchestrator').saveCandidates(selectionRoute[1],input):require('./src/orchestrator').saveCandidate(selectionRoute[1],input));}
-  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.3.1',mode:'agent-orchestrated-mvp'});
+  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.4.0',mode:'agent-orchestrated-mvp'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/variables')return json(res,200,{items:searchCatalog(url.searchParams.get('q')||''),mode:'verified-demo-snapshot'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/cdc'){return json(res,200,await fetchOfficialCatalog({component:url.searchParams.get('component')||'Demographics',cycle:url.searchParams.get('cycle')||'',query:url.searchParams.get('q')||'',limit:url.searchParams.get('limit')||100}))}
   if(req.method==='POST'&&url.pathname==='/api/tools/pubmed/search'){const input=await body(req);return json(res,200,await searchPubMed(input,{email:process.env.NCBI_EMAIL,apiKey:process.env.NCBI_API_KEY,tool:'nhanes_research_agent'}))}
   if(req.method==='POST'&&url.pathname==='/api/tools/parse-question'){const input=await body(req);return json(res,200,parseQuestion(input.question||''))}
   if(req.method==='POST'&&url.pathname==='/api/projects')return json(res,201,createProject(await body(req)));
   if(req.method==='GET'&&url.pathname==='/api/projects')return json(res,200,{items:listProjects(url.searchParams.get('limit'))});
-  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|approve|events|analysis-package|analysis-package-download|analysis-run|analysis-quality|analysis-report|analysis-result-download|data-manifest|data-manifest-validate|data-cache|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
+  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|execute|approve|events|analysis-package|analysis-package-download|analysis-run|analysis-quality|analysis-report|analysis-result-download|data-manifest|data-manifest-validate|data-cache|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
   const [,projectId,action]=match;
   if(req.method==='GET'&&!action)return json(res,200,getProject(projectId));
   if(req.method==='POST'&&action==='run'){runProject(projectId).catch(console.error);return json(res,202,{projectId,status:'running'})}
+  if(req.method==='POST'&&action==='execute')return json(res,202,startFullExecution(getProject(projectId)))
+  if(req.method==='GET'&&action==='execute')return json(res,200,getFullExecution(projectId))
   if(req.method==='POST'&&action==='approve')return json(res,200,approveProject(projectId,await body(req)));
   if(req.method==='POST'&&action==='evidence')return json(res,200,saveEvidence(projectId,await body(req)));
   if(req.method==='GET'&&action==='analysis-package')return json(res,200,generateRProject(getProject(projectId)));

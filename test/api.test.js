@@ -7,7 +7,7 @@ let base;
 test.before(async()=>{await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${server.address().port}`});
 test.after(()=>server.close());
 
-test('health endpoint exposes version and browser security headers',async()=>{const response=await fetch(`${base}/api/health`);assert.equal(response.status,200);const body=await response.json();assert.equal(body.mode,'agent-orchestrated-mvp');assert.equal(body.version,'2.3.1');assert.equal(response.headers.get('x-frame-options'),'DENY');assert.match(response.headers.get('content-security-policy'),/script-src 'self'/)});
+test('health endpoint exposes version and browser security headers',async()=>{const response=await fetch(`${base}/api/health`);assert.equal(response.status,200);const body=await response.json();assert.equal(body.mode,'agent-orchestrated-mvp');assert.equal(body.version,'2.4.0');assert.equal(response.headers.get('x-frame-options'),'DENY');assert.match(response.headers.get('content-security-policy'),/script-src 'self'/)});
 
 test('catalog endpoint returns provenance',async()=>{const response=await fetch(`${base}/api/catalog/variables?q=LBXVIDMS`);const body=await response.json();assert.equal(body.items.length,1);assert.equal(body.items[0].provenance.publisher,'CDC/NCHS')});
 
@@ -23,8 +23,11 @@ test('project lifecycle reaches the approval gate',async()=>{
   response=await fetch(`${base}/api/projects/${project.id}/data-manifest`);assert.equal(response.status,200);const dataManifest=await response.json();assert.equal(dataManifest.files.length,24);assert.ok(dataManifest.files.every(file=>file.url.startsWith('https://wwwn.cdc.gov/')));
   response=await fetch(`${base}/api/projects/${project.id}/data-cache`);assert.equal(response.status,200);assert.equal((await response.json()).status,'not_started');
   response=await fetch(`${base}/api/projects/${project.id}/analysis-run`);assert.equal(response.status,200);assert.equal((await response.json()).status,'not_started');
+  response=await fetch(`${base}/api/projects/${project.id}/execute`);assert.equal(response.status,200);assert.equal((await response.json()).status,'not_started');
+  response=await fetch(`${base}/api/projects/${project.id}/execute`,{method:'POST'});assert.equal(response.status,409);assert.equal((await response.json()).error.code,'ANALYSIS_NOT_READY');
   response=await fetch(`${base}/api/projects/${project.id}/analysis-package-download`);assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'application/gzip');assert.ok((await response.arrayBuffer()).byteLength>1000);
   response=await fetch(`${base}/api/projects/${project.id}/approve`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({actor:'tester',decisions:{outcome_definition:'PHQ-9 >= 10',exposure_parameterization:'per 10 nmol/L',covariate_set:'age, sex, race, PIR, BMI',missing_data:'complete case',association_only:true}})});
   assert.equal(response.status,200);assert.equal((await response.json()).status,'approved');
+  response=await fetch(`${base}/api/projects/${project.id}/execute`);assert.equal(response.status,200);assert.equal((await response.json()).status,'not_started');
   response=await fetch(`${base}/api/projects?limit=10`);assert.equal(response.status,200);const listing=await response.json();assert.ok(listing.items.some(item=>item.id===project.id));
 });

@@ -18,6 +18,7 @@ npm run dev
 - 变量选择、缺失码/单位清洗规则和统计模型的分层人工确认
 - PubMed E-utilities 实时检索、筛选和方法学摘要
 - 官方 XPT 白名单下载、缓存、合并与可复现 R `survey` 分析
+- 方案确认后可由执行 Agent 一键完成文件验证、数据缓存、R 分析、质量门和报告
 - 原有维生素 D—PHQ-9 模板和经审核通用连续/二分类模型执行器
 - 复杂抽样分析质量门、结构化报告和结果归档
 - 研究方案导出与响应式布局
@@ -34,6 +35,8 @@ GET  /api/health
 POST /api/projects
 GET  /api/projects/:id
 POST /api/projects/:id/run
+GET  /api/projects/:id/execute
+POST /api/projects/:id/execute
 GET  /api/projects/:id/events
 POST /api/projects/:id/approve
 POST /api/projects/:id/evidence
