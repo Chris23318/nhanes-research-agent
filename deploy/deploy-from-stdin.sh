@@ -61,6 +61,7 @@ tar -xzf "$archive" --no-same-owner --no-same-permissions -C "$release_dir"
 
 image="nhanes-research-agent:sha-${short_revision}"
 docker build \
+  --build-arg DEBIAN_MIRROR=mirrors.aliyun.com \
   --label "org.opencontainers.image.revision=$revision" \
   --tag "$image" \
   "$release_dir"
