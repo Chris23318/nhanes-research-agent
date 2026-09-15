@@ -60,6 +60,7 @@ function generateRProject(project) {
   const cleaning = require('./cleaning-draft').buildCleaningDraft(project);
   files['cleaning-draft.R'] = cleaning.code;
   files['cleaning-rules.json'] = JSON.stringify({ ...cleaning, code: undefined }, null, 2);
+  files['prepare-data.R'] = require('./data-preparation').generatePreparationScript(dataManifest, cleaning);
   const manifest = Object.entries(files).map(([name, content]) => ({ name, bytes: Buffer.byteLength(content), sha256: crypto.createHash('sha256').update(content).digest('hex') }));
   files['manifest.json'] = JSON.stringify({ generatedAt: config.generatedAt, files: manifest }, null, 2);
   return { status: config.status, readiness, files };
