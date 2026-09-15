@@ -15,6 +15,31 @@ const bus = new EventEmitter();
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function reconcileModelIntent(fallback, value, model) {
+  const deterministicExposure = fallback.exposure?.term && fallback.exposure?.confidence >= 0.9;
+  const deterministicOutcome = fallback.outcome?.term && fallback.outcome?.confidence >= 0.9;
+  const exposure = deterministicExposure
+    ? fallback.exposure
+    : { label: value.exposure, term: value.exposure, component: null, confidence: 0 };
+  const outcome = deterministicOutcome
+    ? fallback.outcome
+    : { label: value.outcome, term: value.outcome, component: null, confidence: 0 };
+  const modelCycles = [...new Set((value.cycles || []).filter(cycle => CYCLES.includes(cycle)))];
+  const cycles = modelCycles.length ? modelCycles : fallback.cycles;
+  const covariates = [...new Set((value.covariates || []).map(item => String(item).trim()).filter(Boolean))];
+  return {
+    ...fallback,
+    title: `${exposure.label}与${outcome.label}`,
+    exposure,
+    outcome,
+    population: { ...fallback.population, label: value.population.description },
+    cycles,
+    covariates: covariates.length ? covariates : fallback.covariates,
+    ambiguities: [...new Set([...(fallback.ambiguities || []), ...(value.ambiguities || []), '模型提出的人群、周期及协变量需要研究者确认'])],
+    parser: { mode: 'model-tools', model, requiresResearcherConfirmation: true }
+  };
+}
+
 function createProject(input) {
   const question = validateQuestion(input);
   const intent = parseQuestion(question);
@@ -58,8 +83,7 @@ async function runProject(projectId, options = {}) {
     try {
       const result = await interpretWithModel(project.question, options.modelOptions);
       project.modelTrace = result.trace;
-      const value = result.intent;
-      return { ...fallback, title: `${value.exposure}与${value.outcome}`, exposure: { label: value.exposure, term: value.exposure, component: null, confidence: 0 }, outcome: { label: value.outcome, term: value.outcome, component: null, confidence: 0 }, population: { ...fallback.population, label: value.population.description }, cycles: value.cycles, covariates: value.covariates, ambiguities: [...value.ambiguities, '模型提出的概念、周期及变量定义需要确认'], parser: { mode: 'model-tools', model: result.model, requiresResearcherConfirmation: true } };
+      return reconcileModelIntent(fallback, result.intent, result.model);
     } catch (error) {
       const reason = ({ MODEL_INVALID_INTENT: '模型多次返回不合规字段', MODEL_ROUND_LIMIT: '模型达到调用轮次上限', MODEL_NOT_CONFIGURED: '模型尚未配置', MODEL_HTTP_402: '模型账户余额不足' })[error.message] || '模型调用未成功';
       return { ...fallback, ambiguities: [...fallback.ambiguities, `${reason}，当前采用规则解析`], parser: { ...fallback.parser, modelStatus: 'unavailable', fallbackReason: reason } };
@@ -185,4 +209,4 @@ function approveModelSpec(projectId, input = {}) {
 
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
 
-module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, saveCandidates, reviewCodebooks, approveCleaning, approveModelSpec, subscribe, projects };
+module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, saveCandidates, reviewCodebooks, approveCleaning, approveModelSpec, reconcileModelIntent, subscribe, projects };
