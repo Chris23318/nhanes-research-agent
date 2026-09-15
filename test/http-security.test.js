@@ -1,0 +1,4 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {SECURITY_HEADERS,createRateLimiter}=require('../src/http-security');
+test('security headers block framing and nonlocal scripts',()=>{assert.equal(SECURITY_HEADERS['X-Frame-Options'],'DENY');assert.match(SECURITY_HEADERS['Content-Security-Policy'],/script-src 'self'/);assert.match(SECURITY_HEADERS['Content-Security-Policy'],/object-src 'none'/)});
+test('bounded rate limiter resets after its window',()=>{const limiter=createRateLimiter(2);assert.equal(limiter.check('a','heavy',2,1000,0).allowed,true);assert.equal(limiter.check('a','heavy',2,1000,1).allowed,true);const denied=limiter.check('a','heavy',2,1000,2);assert.equal(denied.allowed,false);assert.equal(denied.retryAfter,1);assert.equal(limiter.check('a','heavy',2,1000,1001).allowed,true)});

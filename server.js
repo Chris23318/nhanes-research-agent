@@ -9,7 +9,10 @@ const {startDataCache,getDataCache}=require('./src/data-cache');
 const {startAnalysis,getAnalysis,getAnalysisArchive,getAnalysisReport,getAnalysisQuality}=require('./src/analysis-runner');
 const {fetchOfficialCatalog}=require('./src/cdc-catalog');
 const {parseQuestion}=require('./src/question-parser');
+const {SECURITY_HEADERS,createRateLimiter}=require('./src/http-security');
 const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.md':'text/markdown; charset=utf-8'};
+const limiter=createRateLimiter(),heavy=/\/(?:run|codebook-review|data-manifest-validate|data-cache|analysis-run)$|\/api\/tools\/(?:pubmed\/search|parse-question)$/;
+function enforceRate(req,url){const key=req.socket.remoteAddress||'unknown',normal=limiter.check(key,'all',300,60000);if(!normal.allowed)return normal;if(req.method==='POST'&&heavy.test(url.pathname))return limiter.check(key,'heavy',20,600000);return normal}
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
 async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
 async function api(req,res,url){
@@ -50,6 +53,6 @@ async function api(req,res,url){
   return json(res,405,{error:{code:'METHOD_NOT_ALLOWED',message:'method not allowed'}})
 }
 function staticFile(res,url){const target=url.pathname==='/'?'index.html':url.pathname.slice(1),file=path.normalize(path.join(root,target));if(!file.startsWith(root)||!fs.existsSync(file)||fs.statSync(file).isDirectory()){res.writeHead(404);return res.end('Not found')}res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});fs.createReadStream(file).pipe(res)}
-const server=http.createServer(async(req,res)=>{const url=new URL(req.url,'http://localhost');try{if(url.pathname.startsWith('/api/'))await api(req,res,url);else staticFile(res,url)}catch(error){if(!res.headersSent)json(res,error.status||500,{error:{code:error.code||'INTERNAL_ERROR',message:error.status?error.message:'internal server error'}})}});
+const server=http.createServer(async(req,res)=>{for(const [name,value] of Object.entries(SECURITY_HEADERS))res.setHeader(name,value);const url=new URL(req.url,'http://localhost'),rate=enforceRate(req,url);if(!rate.allowed){res.setHeader('Retry-After',String(rate.retryAfter));return json(res,429,{error:{code:'RATE_LIMITED',message:'请求过于频繁，请稍后重试'}})}try{if(url.pathname.startsWith('/api/'))await api(req,res,url);else staticFile(res,url)}catch(error){if(!res.headersSent)json(res,error.status||500,{error:{code:error.code||'INTERNAL_ERROR',message:error.status?error.message:'internal server error'}})}});
 if(require.main===module)server.listen(process.env.PORT||4173,()=>console.log('NHANES Lab: http://localhost:4173'));
 module.exports={server};
