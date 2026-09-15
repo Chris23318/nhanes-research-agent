@@ -35,6 +35,24 @@ docker compose -f compose.production.yaml up -d --remove-orphans
 docker image prune -f
 ```
 
+## GitHub 自动部署到阿里云
+
+主分支推送通过 `.github/workflows/container.yml` 自动运行测试，并在测试通过后把当前 Git 提交的归档流式发送到服务器。服务器端只允许部署密钥调用 `/usr/local/sbin/deploy-nhanes-agent`；该命令会校验提交号、归档大小、路径和文件类型，再构建并切换容器。
+
+仓库需要配置以下 Actions secrets：
+
+- `ALIYUN_HOST`：服务器公网 IP 或域名。
+- `ALIYUN_DEPLOY_KEY`：受限部署私钥。
+- `ALIYUN_KNOWN_HOSTS`：经过核验的服务器 SSH 主机密钥。
+
+仓库变量 `ALIYUN_AUTO_DEPLOY=true` 用于启用发布。服务器的 `authorized_keys` 必须把对应公钥限制为：
+
+```text
+restrict,command="/usr/local/sbin/deploy-nhanes-agent" ssh-ed25519 ...
+```
+
+发布失败时，新容器会被移除，原容器自动恢复。模型密钥只保存在服务器 `/etc/nhanes-agent/model.env`，不会进入 GitHub、镜像或发布归档。
+
 ## 回滚
 
 把 `.env` 中的 `APP_IMAGE` 从 `latest` 改为已发布的 `sha-<commit>` 标签，然后重新执行 `docker compose up -d`。不要使用会删除数据卷的命令。
