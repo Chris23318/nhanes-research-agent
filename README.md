@@ -12,17 +12,19 @@ npm run dev
 
 ## 已实现
 
-- 研究问题输入与 PEO/协变量/周期识别演示
+- 研究问题输入与 PEO/协变量/周期结构化识别（可选 DeepSeek，失败时安全回退）
 - 六阶段 Agent 工作流与可见运行记录
-- NHANES 变量和数据文件映射
-- PubMed 证据摘要区
-- R `survey` / `nhanesA` 分析代码骨架
-- 复杂抽样分析质量门与人工确认点
+- CDC 官方目录候选发现、逐周期代码本取证与 SHA-256 审计
+- 变量选择、缺失码/单位清洗规则和统计模型的分层人工确认
+- PubMed E-utilities 实时检索、筛选和方法学摘要
+- 官方 XPT 白名单下载、缓存、合并与可复现 R `survey` 分析
+- 原有维生素 D—PHQ-9 模板和经审核通用连续/二分类模型执行器
+- 复杂抽样分析质量门、结构化报告和结果归档
 - 研究方案导出与响应式布局
 - 研究项目创建、运行、查询和确认 API
 - SSE 实时 Agent 事件流
 - 结构化领域校验、显式状态机与人工质量门
-- OpenAI Responses API 严格 Schema / 函数工具请求构造器
+- DeepSeek 严格结构化输出、最多四轮格式修复与无密钥回退
 - Node 原生测试覆盖领域契约和项目生命周期
 
 ## API
@@ -35,6 +37,11 @@ POST /api/projects/:id/run
 GET  /api/projects/:id/events
 POST /api/projects/:id/approve
 POST /api/projects/:id/evidence
+POST /api/projects/:id/candidate-selection
+POST /api/projects/:id/codebook-review
+GET  /api/projects/:id/cleaning-draft
+POST /api/projects/:id/cleaning-approval
+POST /api/projects/:id/model-spec
 GET  /api/projects/:id/analysis-package
 GET  /api/projects/:id/analysis-package-download
 GET  /api/projects/:id/data-manifest
@@ -52,9 +59,9 @@ POST /api/tools/pubmed/search
 POST /api/tools/parse-question
 ```
 
-变量目录当前为带来源声明的演示快照，正式分析前必须逐周期复核。PubMed 工具可通过 NCBI E-utilities 实时检索；建议配置 `NCBI_EMAIL`，高频使用时配置 `NCBI_API_KEY`。`src/openai-adapter.js` 定义了生产接入所需的结构化输出和工具契约，但不会在缺少 API Key 时静默调用模型。
+已核验的维生素 D 演示方案使用内置注册表；其他研究问题从 CDC/NCHS 官方目录发现候选，正式分析前必须逐周期复核代码本并确认清洗规则。PubMed 工具通过 NCBI E-utilities 实时检索；建议配置 `NCBI_EMAIL`，高频使用时配置 `NCBI_API_KEY`。
 
-分析包接口生成 `analysis.R`、冻结配置和机器可读 QC 规则。未检测到 R 运行环境时，状态始终是 `generated_not_executed`，系统不会把代码生成冒充成分析结果。
+分析包接口生成数据准备脚本、`model.R`、冻结配置和机器可读 QC 规则。只有变量、清洗、模型和研究方案摘要完全匹配时，通用执行器才会运行；任何失败都会保留为失败状态，不会把代码生成冒充成分析结果。
 
 生产环境设置 `DATABASE_PATH=/data/nhanes.sqlite` 后，项目和审计事件持久化到 SQLite。Compose 配置已挂载独立数据卷，容器更新不会删除项目数据。
 

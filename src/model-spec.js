@@ -1,4 +1,7 @@
 const crypto = require('node:crypto');
+const CORE_KEYS = ['schemaVersion','outcomeFamily','exposureTransform','outcomeTransform','outcomeThreshold','population','weightVariable','strataVariable','psuVariable','cycles','exposureMappings','outcomeMappings','covariates','associationOnly','cleaningDigest'];
+function digestCore(core) { return crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex'); }
+function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const core=Object.fromEntries(CORE_KEYS.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
 
 function createModelSpec(project, input = {}) {
   const fail = (message, status = 400) => { const error = new Error(message); error.status = status; throw error; };
@@ -11,6 +14,8 @@ function createModelSpec(project, input = {}) {
   const thresholdNeeded = input.outcomeTransform !== 'raw';
   const threshold = Number(input.outcomeThreshold);
   if (thresholdNeeded && !Number.isFinite(threshold)) fail('结局阈值必须为有限数值');
+  const populationAgeMin = Number(input.populationAgeMin);
+  if (!Number.isFinite(populationAgeMin) || populationAgeMin < 0 || populationAgeMin > 85) fail('最低年龄必须是 0 至 85 岁');
   if (input.acknowledgeAssociationOnly !== true) fail('必须确认横断面结果仅解释为关联');
   const variables = project.variables || [], cycles = project.intent?.cycles || [];
   if (!cycles.length) fail('至少需要一个 NHANES 周期', 409);
@@ -37,8 +42,8 @@ function createModelSpec(project, input = {}) {
     return { variable: mapping.variable, encoding: item.encoding };
   });
   if (new Set(covariates.map(item => item.variable)).size !== covariates.length) fail('协变量不能重复');
-  const core = { schemaVersion:'1.0', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, weightVariable:weight.variable, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest };
-  return { ...core, digest:crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex'), status:'approved_for_code_generation_not_execution', approvedAt:new Date().toISOString(), actor:typeof input.actor==='string'&&input.actor.trim()?input.actor.trim().slice(0,100):'researcher' };
+  const core = { schemaVersion:'1.1', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest };
+  return { ...core, digest:digestCore(core), status:'approved_for_code_generation_not_execution', approvedAt:new Date().toISOString(), actor:typeof input.actor==='string'&&input.actor.trim()?input.actor.trim().slice(0,100):'researcher' };
 }
 
-module.exports = { createModelSpec };
+module.exports = { createModelSpec, verifyModelSpec };

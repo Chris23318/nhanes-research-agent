@@ -101,8 +101,9 @@ async function runProject(projectId, options = {}) {
 function approveProject(projectId, input = {}) {
   const project = getProject(projectId);
   if (project.status !== 'awaiting_approval') { const error = new Error('project is not awaiting approval'); error.status = 409; error.code = 'INVALID_STATE'; throw error; }
+  if ((project.variables || []).some(item=>item.confirmationStatus==='codebook_and_cleaning_approved') && !project.modelSpec) { const error=new Error('请先确认并冻结统计模型');error.status=409;error.code='MODEL_SPEC_REQUIRED';throw error; }
   const checked = validateApproval(input), approval = { id: id('apr'), actor: checked.actor, decisions: checked.decisions, schemaVersion: '1.0', at: new Date().toISOString() };
-  project.approvals.push(approval); project.status = 'approved'; project.protocol = { ...(project.protocol || {}), frozen: true, frozenAt: approval.at, approvalId: approval.id, decisions: approval.decisions }; emit(project, 'protocol', 'approved', '研究方案已确认并冻结', approval); return project;
+  project.approvals.push(approval); project.status = 'approved'; project.protocol = { ...(project.protocol || {}), frozen: true, frozenAt: approval.at, approvalId: approval.id, modelSpecDigest:project.modelSpec?.digest||null, decisions: approval.decisions }; emit(project, 'protocol', 'approved', '研究方案已确认并冻结', approval); return project;
 }
 
 function saveEvidence(projectId, input = {}) {
@@ -110,6 +111,8 @@ function saveEvidence(projectId, input = {}) {
   delete project.modelSpec;
   project.evidence = { query: String(input.query || '').slice(0, 5000), retrievedAt: input.retrievedAt || null, screenedAt: new Date().toISOString(), items, summary: summarizeEvidence(items) };
   project.protocol = { ...(project.protocol || {}), evidenceBasedRecommendations: project.evidence.summary.recommendations, evidenceIncluded: project.evidence.summary.included, evidenceUpdatedAt: project.evidence.screenedAt, approvalRequired: true };
+  project.feasibility = assessFeasibility(project.intent, project.variables);
+  project.agentPlan = buildAgentPlan(project);
   defaultStore.save(project, 'evidence.screened', { included: project.evidence.summary.included, excluded: project.evidence.summary.excluded, uncertain: project.evidence.summary.uncertain });
   return project;
 }
@@ -123,6 +126,8 @@ function saveCandidate(projectId, input) {
   project.codebookReviews = [];
   project.candidateSelections = [...(project.candidateSelections || []).filter(x => !(x.role === selection.role && x.file === selection.file)), selection];
   project.candidateSelectionHistory = [...(project.candidateSelectionHistory || []), selection];
+  project.feasibility = assessFeasibility(project.intent, project.variables);
+  project.agentPlan = buildAgentPlan(project);
   defaultStore.save(project, 'candidate.selected', selection);
   return project;
 }
@@ -143,6 +148,8 @@ async function reviewCodebooks(projectId, options = {}) {
   delete project.cleaningApproval;
   delete project.modelSpec;
   project.codebookReviews = reviews;
+  project.feasibility = assessFeasibility(project.intent, project.variables);
+  project.agentPlan = buildAgentPlan(project);
   defaultStore.save(project, 'codebooks.retrieved', { total: reviews.length, found: reviews.filter(x=>x.variableFound).length });
   return project;
 }
@@ -160,6 +167,8 @@ function approveCleaning(projectId, input = {}) {
 function approveModelSpec(projectId, input = {}) {
   const project = getProject(projectId);
   project.modelSpec = require('./model-spec').createModelSpec(project, input);
+  project.feasibility = { ...(project.feasibility || {}), status:'executable', supportedPipeline:'generic_survey_v1', blockers:[], message:'变量、周期、清洗规则和通用 survey 模型均已冻结，可在最终确认方案后执行' };
+  project.agentPlan = buildAgentPlan(project);
   defaultStore.save(project, 'model_spec.approved', { digest:project.modelSpec.digest, actor:project.modelSpec.actor, outcomeFamily:project.modelSpec.outcomeFamily });
   return project;
 }

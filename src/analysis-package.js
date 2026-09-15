@@ -11,6 +11,7 @@ function assessReadiness(project) {
   if (!variables.some(item => item.variable === 'SDMVSTRA') || !variables.some(item => item.variable === 'SDMVPSU')) errors.push('survey strata or PSU is not confirmed');
   const usesReviewedMappings = variables.some(item => item.confirmationStatus === 'codebook_and_cleaning_approved');
   if (usesReviewedMappings && !project.modelSpec) errors.push('statistical model specification is not approved');
+  if (project.modelSpec && !require('./model-spec').verifyModelSpec(project.modelSpec)) errors.push('model specification digest is invalid');
   if (project.modelSpec && project.modelSpec.cleaningDigest !== project.cleaningApproval?.digest) errors.push('model specification does not match the current cleaning approval');
   if (!project.evidence?.summary?.included) warnings.push('no screened PubMed evidence has been included');
   for (const ambiguity of project.intent?.ambiguities || []) warnings.push(ambiguity);
