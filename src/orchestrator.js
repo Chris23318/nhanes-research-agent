@@ -163,8 +163,20 @@ function applyCandidateSelections(project,selections){
 function saveCandidates(projectId,input={}){
   const project=getProject(projectId),items=Array.isArray(input.items)?input.items:[];
   if(input.acknowledgeRecommendations!==true){const error=new Error('请先确认已查看 Agent 推荐候选');error.status=400;throw error}
+  const coverage=project.variableDiscovery?.coverage;
+  if(coverage){
+    if(input.coverageDigest!==project.variableDiscovery.coverageDigest||input.coverageDigest!==coverage.digest){const error=new Error('候选覆盖矩阵已变化，请刷新后重新确认');error.status=409;error.code='STALE_COVERAGE';throw error}
+    if(input.acknowledgeCrossCycleReview!==true){const error=new Error('请确认已查看跨周期兼容性和缺口');error.status=400;throw error}
+    if(!coverage.summary?.coreComplete){const error=new Error('暴露或结局未覆盖全部周期，不能批量采用推荐');error.status=409;error.code='INCOMPLETE_CORE_COVERAGE';throw error}
+    if(coverage.summary?.autoSelectionReady===false){const error=new Error('核心变量存在弱匹配或并列候选，请手动选择后核验代码本');error.status=409;error.code='AMBIGUOUS_CORE_MAPPING';throw error}
+  }
   if(!items.length||items.length>60){const error=new Error('批量候选必须为1至60项');error.status=400;throw error}
   const selections=items.map(item=>require('./candidate-selection').selectCandidate(project,item));
+  if(coverage){
+    const covers=(role,cycle)=>selections.some(selection=>selection.role===role&&selection.cycles.includes(cycle));
+    const complete=['exposure','outcome'].every(role=>(project.intent.cycles||[]).every(cycle=>covers(role,cycle)));
+    if(!complete){const error=new Error('所选推荐没有覆盖暴露和结局的全部周期');error.status=409;error.code='INCOMPLETE_SELECTION';throw error}
+  }
   applyCandidateSelections(project,selections);defaultStore.save(project,'candidates.selected',{count:selections.length,roles:[...new Set(selections.map(x=>x.role))]});return project;
 }
 function listProjects(limit){return defaultStore.list(limit)}

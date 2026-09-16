@@ -8,7 +8,21 @@ function selectCandidate(project, input = {}) {
   if (typeof input.reason !== 'string' || !input.reason.trim() || input.reason.length > 1000) fail('请填写选择理由，最多1000字');
   const cycles = (candidate.matchedCycles || []).filter(x => project.intent.cycles.includes(x));
   if (!cycles.length) fail('候选尚未匹配所选周期，需先核对目录日期');
-  const selection = { role: input.role, concept:group.concept, variable: candidate.variable, file: candidate.file, description: candidate.description, cycles, reason: input.reason.trim(), selectedAt: new Date().toISOString(), status: 'codebook_review_required' };
+  const selection = {
+    role: input.role,
+    concept: group.concept,
+    variable: candidate.variable,
+    file: candidate.file,
+    description: candidate.description,
+    component: candidate.component,
+    constraints: candidate.constraints,
+    catalogPeriod: candidate.beginYear && candidate.endYear ? `${candidate.beginYear}-${candidate.endYear}` : null,
+    catalogScore: Number((Number(candidate.score) || 0).toFixed(4)),
+    cycles,
+    reason: input.reason.trim(),
+    selectedAt: new Date().toISOString(),
+    status: 'codebook_review_required'
+  };
   return selection;
 }
 module.exports = { selectCandidate };
