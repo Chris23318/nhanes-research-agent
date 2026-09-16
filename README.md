@@ -20,7 +20,9 @@ npm run dev
 - 官方 XPT 白名单下载、缓存、合并与可复现 R `survey` 分析
 - 方案确认后可由执行 Agent 一键完成文件验证、数据缓存、R 分析、质量门和报告
 - 原有维生素 D—PHQ-9 模板和经审核通用连续/二分类模型执行器
-- 复杂抽样分析质量门、结构化报告和结果归档
+- 根据最小分析子样本自动推荐访谈或 MEC 权重，并按合并周期自动缩放
+- 自动运行未调整模型和权重第 1–99 百分位截尾敏感性分析
+- 权重分布、设计自由度、分层/PSU 诊断，结构化报告和结果归档
 - 研究方案导出与响应式布局
 - 研究项目创建、运行、查询和确认 API
 - SSE 实时 Agent 事件流
@@ -44,6 +46,7 @@ POST /api/projects/:id/candidate-selection
 POST /api/projects/:id/codebook-review
 GET  /api/projects/:id/cleaning-draft
 POST /api/projects/:id/cleaning-approval
+POST /api/projects/:id/weight-advice
 POST /api/projects/:id/model-spec
 GET  /api/projects/:id/analysis-package
 GET  /api/projects/:id/analysis-package-download

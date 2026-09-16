@@ -15,6 +15,7 @@ function approveCleaningDraft(project, input = {}) {
     return {
       role: selection.role, concept: selection.concept || selection.description || project.intent?.[selection.role]?.label || selection.variable,
       variable: rule.variable, source: rule.file.replace(/_[A-Z]$/, ''), sourceFile: rule.file,
+      sourceComponent: selection.component || null,
       transform: `missing codes: ${rule.missingCodes.join(', ') || 'SAS missing only'}; unit: ${rule.unit || 'researcher confirmed from codebook'}`,
       confidence: 0.8, cycles: [rule.cycle], confirmationStatus: 'codebook_and_cleaning_approved',
       provenance: { publisher: 'CDC/NCHS', codebookUrl: rule.source, codebookSha256: rule.sha256, selectionReason: selection.reason }
@@ -27,6 +28,7 @@ function approveCleaningDraft(project, input = {}) {
     acknowledgements: { mapping: true, missingCodes: true, unitAndPopulation: true }, approvedAt: new Date().toISOString(),
     ruleCount: draft.rules.length, status: 'approved_for_code_generation_not_execution'
   };
+  project.weightAdvice = require('./weight-policy').createWeightAdvice(project,{selectedConcepts:[]});
   return { project, mappings };
 }
 

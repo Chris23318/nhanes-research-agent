@@ -20,7 +20,7 @@ test('R execution gate requires approval and the supported exposure/outcome', ()
 test('R execution gate accepts a frozen generic survey model without using the fixed template',()=>{
   const cycles=['2017-2018'],generic=project({status:'awaiting_approval',feasibility:{status:'design_only'},cleaningApproval:{digest:'clean'},variables:[{role:'exposure',variable:'LBXBPB',sourceFile:'PBCD_J',cycles,confirmationStatus:'codebook_and_cleaning_approved'},{role:'outcome',variable:'BPXSY1',sourceFile:'BPX_J',cycles,confirmationStatus:'codebook_and_cleaning_approved'},{role:'design',variable:'WTMEC2YR',cycles},{role:'design',variable:'SDMVSTRA',cycles},{role:'design',variable:'SDMVPSU',cycles}]});
   generic.modelSpec=createModelSpec(generic,{outcomeFamily:'continuous',exposureTransform:'raw',outcomeTransform:'raw',populationAgeMin:20,weightVariable:'WTMEC2YR',covariates:[],acknowledgeAssociationOnly:true,acknowledgeWeightChoice:true});generic.status='approved';generic.protocol={modelSpecDigest:generic.modelSpec.digest};
-  const gate=executionGate(generic);assert.equal(gate.ready,true);assert.equal(gate.mode,'generic_survey_v1');
+  const gate=executionGate(generic);assert.equal(gate.ready,true);assert.equal(gate.mode,'generic_survey_v2');
   generic.modelSpec.cleaningDigest='stale';assert.match(executionGate(generic).errors.join(' '),/does not match/);
 });
 

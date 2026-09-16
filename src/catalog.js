@@ -9,6 +9,7 @@ const VARIABLES = [
   { role: 'covariate', concept: '贫困收入比', variable: 'INDFMPIR', source: 'DEMO', transform: 'continuous and category', confidence: 1 },
   { role: 'covariate', concept: 'BMI', variable: 'BMXBMI', source: 'BMX', transform: 'continuous', confidence: 1 },
   { role: 'design', concept: 'MEC 权重', variable: 'WTMEC2YR', source: 'DEMO', transform: 'divide by number of pooled 2-year cycles', confidence: 1 },
+  { role: 'design', concept: '访谈权重', variable: 'WTINT2YR', source: 'DEMO', transform: 'use for interview-only analyses; divide by pooled regular 2-year cycles', confidence: 1 },
   { role: 'design', concept: '分层变量', variable: 'SDMVSTRA', source: 'DEMO', transform: 'retain', confidence: 1 },
   { role: 'design', concept: 'PSU', variable: 'SDMVPSU', source: 'DEMO', transform: 'retain', confidence: 1 }
 ].map(item => ({ ...item, cycles: CYCLES, provenance: { publisher: 'CDC/NCHS', verification: 'demo snapshot; verify against cycle codebook before execution' } }));

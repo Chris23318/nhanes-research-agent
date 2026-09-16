@@ -10,7 +10,7 @@ test('research questions are normalized and bounded',()=>{
 
 test('catalog variable mappings satisfy the contract',()=>{
   const values=validateVariableMap(resolveVariables());
-  assert.equal(values.length,10);
+  assert.equal(values.length,11);
   assert.ok(values.every(value=>value.cycles.length===6));
 });
 

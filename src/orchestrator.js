@@ -114,7 +114,7 @@ async function runProject(projectId, options = {}) {
     if (project.literature.summary?.methodCounts?.['restricted cubic spline']) secondary.add('限制性立方样条非线性分析');
     if (project.literature.summary?.methodCounts?.['linear regression']) secondary.add('连续结局的 survey-weighted linear regression');
     secondary.add('完整案例与多重插补敏感性分析');
-    return { schemaVersion: '1.2', design: 'pooled cross-sectional complex survey', estimand: '目标人群中的横断面调整关联', causalInterpretationAllowed: false, outcomeType, weight: `WTMEC2YR / ${cycles.length || 'K'}`, primaryModel: modelFor(outcomeType), secondary: [...secondary], literatureCandidates: project.literature.articles?.length || 0, evidenceMethodRecommendations: recommendations, evidenceStatus: 'provisional_unreviewed', approvalRequired: true };
+    return { schemaVersion: '1.3', design: 'pooled cross-sectional complex survey', estimand: '目标人群中的横断面调整关联', causalInterpretationAllowed: false, outcomeType, weight: `根据最小分析子样本自动选择，并除以 ${cycles.length || 'K'} 个合并周期`, primaryModel: modelFor(outcomeType), secondary: [...secondary], literatureCandidates: project.literature.articles?.length || 0, evidenceMethodRecommendations: recommendations, evidenceStatus: 'provisional_unreviewed', approvalRequired: true };
   });
   project.agentPlan = buildAgentPlan(project);
   project.status = 'awaiting_approval';
@@ -213,12 +213,18 @@ function approveCleaning(projectId, input = {}) {
 function approveModelSpec(projectId, input = {}) {
   const project = getProject(projectId);
   project.modelSpec = require('./model-spec').createModelSpec(project, input);
-  project.feasibility = { ...(project.feasibility || {}), status:'executable', supportedPipeline:'generic_survey_v1', blockers:[], message:'变量、周期、清洗规则和通用 survey 模型均已冻结，可在最终确认方案后执行' };
+  project.feasibility = { ...(project.feasibility || {}), status:'executable', supportedPipeline:'generic_survey_v2', blockers:[], message:'变量、周期、清洗规则、权重策略和通用 survey 模型均已冻结，可在最终确认方案后执行' };
   project.agentPlan = buildAgentPlan(project);
   defaultStore.save(project, 'model_spec.approved', { digest:project.modelSpec.digest, actor:project.modelSpec.actor, outcomeFamily:project.modelSpec.outcomeFamily });
   return project;
 }
 
+function getWeightAdvice(projectId,input={}){
+  const project=getProject(projectId),selectedConcepts=Array.isArray(input.selectedConcepts)?input.selectedConcepts:[];
+  if(selectedConcepts.length>30||selectedConcepts.some(value=>typeof value!=='string'||!value.trim()||value.length>200)){const error=new Error('协变量概念列表无效');error.status=400;throw error}
+  return require('./weight-policy').createWeightAdvice(project,{selectedConcepts});
+}
+
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
 
-module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, saveCandidates, reviewCodebooks, approveCleaning, approveModelSpec, reconcileModelIntent, subscribe, projects };
+module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, saveCandidates, reviewCodebooks, approveCleaning, approveModelSpec, getWeightAdvice, reconcileModelIntent, subscribe, projects };

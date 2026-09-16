@@ -11,6 +11,8 @@ function generateModelScript(spec) {
   const exposure = cycleExpression(spec.exposureMappings), outcome = cycleExpression(spec.outcomeMappings);
   const covariates = spec.covariates.map((item,index)=>({name:`cov_${index+1}`,mappings:item.mappings,encoding:item.encoding}));
   const formula = `analysis_outcome ~ ${['analysis_exposure',...covariates.map(x=>x.name)].join(' + ')}`;
+  const weightDivisor=Number(spec.weightPolicy?.divisor||spec.cycles.length),weightRule=`${safe(spec.weightVariable)} / ${weightDivisor}`;
+  if(!Number.isInteger(weightDivisor)||weightDivisor<1)throw new Error('invalid pooled weight divisor in model specification');
   const exposureTransform = spec.exposureTransform === 'log2' ? ['if (any(analytic$analysis_exposure <= 0, na.rm=TRUE)) stop("log2 exposure requires positive values")','analytic$analysis_exposure <- log2(analytic$analysis_exposure)'] : spec.exposureTransform === 'per_sd' ? ['scale_value <- sd(analytic$analysis_exposure,na.rm=TRUE)','if (!is.finite(scale_value) || scale_value <= 0) stop("Exposure SD is invalid")','analytic$analysis_exposure <- analytic$analysis_exposure / scale_value'] : [];
   const outcomeTransform = spec.outcomeTransform === 'threshold_ge' ? [`analytic$analysis_outcome <- as.integer(analytic$analysis_outcome >= ${spec.outcomeThreshold})`] : spec.outcomeTransform === 'threshold_eq' ? [`analytic$analysis_outcome <- as.integer(analytic$analysis_outcome == ${spec.outcomeThreshold})`] : [];
   const family = spec.outcomeFamily === 'binary' ? 'quasibinomial()' : 'gaussian()';
@@ -26,7 +28,7 @@ function generateModelScript(spec) {
     ...outcomeTransform,
     ...covariates.map(x=>`analytic$${x.name} <- ${x.encoding==='factor'?`factor(${cycleExpression(x.mappings)})`:`as.numeric(${cycleExpression(x.mappings)})`}`),
     ...exposureTransform,
-    `analytic$analysis_weight <- as.numeric(analytic[["${safe(spec.weightVariable)}"]]) / ${spec.cycles.length}`,
+    `analytic$analysis_weight <- as.numeric(analytic[["${safe(spec.weightVariable)}"]]) / ${weightDivisor}`,
     `required <- c("analysis_outcome","analysis_exposure","analysis_weight","${safe(spec.strataVariable)}","${safe(spec.psuVariable)}"${covariates.map(x=>`,"${x.name}"`).join('')})`,
     'finite_numeric <- is.finite(analytic$analysis_outcome) & is.finite(analytic$analysis_exposure) & is.finite(analytic$analysis_weight)',
     ...covariates.filter(x=>x.encoding==='continuous').map(x=>`finite_numeric <- finite_numeric & is.finite(analytic$${x.name})`),
@@ -41,11 +43,29 @@ function generateModelScript(spec) {
     'if (any(!is.finite(est)) || any(!is.finite(ci))) stop("Nonfinite model result")',
     'coefficient_result <- data.frame(term=names(est),estimate=as.numeric(est),std_error=as.numeric(tab[,2]),p_value=as.numeric(tab[,4]),ci_low=as.numeric(ci[,1]),ci_high=as.numeric(ci[,2]))',
     spec.outcomeFamily === 'binary' ? 'coefficient_result$effect <- exp(coefficient_result$estimate); coefficient_result$ci_low <- exp(coefficient_result$ci_low); coefficient_result$ci_high <- exp(coefficient_result$ci_high); coefficient_result$effect_type <- "odds_ratio"' : 'coefficient_result$effect <- coefficient_result$estimate; coefficient_result$effect_type <- "beta"',
-    'write.csv(flow,file.path(output_dir,"model-sample-flow.csv"),row.names=FALSE)', 'write.csv(coefficient_result,file.path(output_dir,"model-coefficients.csv"),row.names=FALSE)',
+    'extract_exposure <- function(fitted,label) {',
+    '  estimates <- coef(fitted); intervals <- confint(fitted); table <- summary(fitted)$coefficients',
+    '  if (!("analysis_exposure" %in% names(estimates))) stop(paste(label,"has no exposure coefficient"))',
+    '  row <- data.frame(model=label,term="analysis_exposure",estimate=as.numeric(estimates[["analysis_exposure"]]),std_error=as.numeric(table["analysis_exposure",2]),p_value=as.numeric(table["analysis_exposure",4]),ci_low=as.numeric(intervals["analysis_exposure",1]),ci_high=as.numeric(intervals["analysis_exposure",2]))',
+    spec.outcomeFamily === 'binary' ? '  row$effect <- exp(row$estimate); row$ci_low <- exp(row$ci_low); row$ci_high <- exp(row$ci_high); row$effect_type <- "odds_ratio"' : '  row$effect <- row$estimate; row$effect_type <- "beta"',
+    '  row', '}',
+    `unadjusted_model <- svyglm(analysis_outcome ~ analysis_exposure,design=design,family=${family})`,
+    'weight_limits <- as.numeric(quantile(analytic$analysis_weight,probs=c(0.01,0.99),na.rm=TRUE,names=FALSE,type=8))',
+    'if (length(weight_limits)!=2 || any(!is.finite(weight_limits)) || weight_limits[1]<=0 || weight_limits[1]>weight_limits[2]) stop("Weight trimming limits are invalid")',
+    'trimmed_data <- analytic',
+    'trimmed_data$analysis_weight <- pmin(pmax(trimmed_data$analysis_weight,weight_limits[1]),weight_limits[2])',
+    `trimmed_design <- svydesign(ids=~${safe(spec.psuVariable)},strata=~${safe(spec.strataVariable)},weights=~analysis_weight,nest=TRUE,data=trimmed_data)`,
+    `trimmed_model <- svyglm(${formula},design=trimmed_design,family=${family})`,
+    'sensitivity_result <- bind_rows(extract_exposure(unadjusted_model,"unadjusted"),extract_exposure(trimmed_model,"weight_trim_1_99"))',
+    'if (any(!is.finite(as.matrix(sensitivity_result[c("effect","ci_low","ci_high","p_value")]))) ) stop("Nonfinite sensitivity result")',
+    'weight_quantiles <- as.numeric(quantile(analytic$analysis_weight,probs=c(0,0.01,0.5,0.99,1),na.rm=TRUE,names=FALSE,type=8))',
+    `design_diagnostics <- list(degreesFreedom=as.numeric(degf(design)),strata=length(unique(analytic[["${safe(spec.strataVariable)}"]])),psu=length(unique(interaction(analytic[["${safe(spec.strataVariable)}"]],analytic[["${safe(spec.psuVariable)}"]],drop=TRUE))))`,
+    'weight_diagnostics <- list(min=weight_quantiles[1],p01=weight_quantiles[2],median=weight_quantiles[3],p99=weight_quantiles[4],max=weight_quantiles[5],positive=sum(analytic$analysis_weight>0),trimmed=sum(analytic$analysis_weight<weight_limits[1] | analytic$analysis_weight>weight_limits[2]))',
+    'write.csv(flow,file.path(output_dir,"model-sample-flow.csv"),row.names=FALSE)', 'write.csv(coefficient_result,file.path(output_dir,"model-coefficients.csv"),row.names=FALSE)', 'write.csv(sensitivity_result,file.path(output_dir,"sensitivity-coefficients.csv"),row.names=FALSE)',
     'runtime <- list(rVersion=R.version.string,surveyVersion=as.character(packageVersion("survey")),havenVersion=as.character(packageVersion("haven")),completedAt=format(Sys.time(),tz="UTC",usetz=TRUE))',
-    `result_document <- list(schemaVersion="2.0",status="completed",analysisMode="generic_survey_v1",analysis="survey-weighted ${spec.outcomeFamily} regression",exposureUnit="${spec.exposureTransform}",cycles=c(${spec.cycles.map(cycleLiteral).join(',')}),weightRule="${safe(spec.weightVariable)} / ${spec.cycles.length}",flow=list(merged=assembled_n,population_eligible=population_n,analytic_complete_case=nrow(analytic)${spec.outcomeFamily === 'binary' ? ',outcome_cases=sum(analytic$analysis_outcome==1)' : ''}),coefficients=coefficient_result,sensitivityCoefficients=list(),warnings=c("Cross-sectional association; causal interpretation is not supported.","Complete-case primary model; missing-data sensitivity analysis was not executed.","Pregnancy restriction was not applied unless encoded in the approved population definition."),modelSpecDigest="${spec.digest}",runtime=runtime)`,
+    `result_document <- list(schemaVersion="2.1",status="completed",analysisMode="generic_survey_v2",analysis="survey-weighted ${spec.outcomeFamily} regression",exposureUnit="${spec.exposureTransform}",cycles=c(${spec.cycles.map(cycleLiteral).join(',')}),weightRule="${weightRule}",weightDiagnostics=weight_diagnostics,designDiagnostics=design_diagnostics,flow=list(merged=assembled_n,population_eligible=population_n,analytic_complete_case=nrow(analytic)${spec.outcomeFamily === 'binary' ? ',outcome_cases=sum(analytic$analysis_outcome==1)' : ''}),coefficients=coefficient_result,sensitivityCoefficients=sensitivity_result,sensitivityPlan=c("unadjusted","weight_trim_1_99"),warnings=c("Cross-sectional association; causal interpretation is not supported.","Complete-case primary model; multiple-imputation sensitivity analysis was not executed.","Pregnancy restriction was not applied unless encoded in the approved population definition."),modelSpecDigest="${spec.digest}",runtime=runtime)`,
     'write_json(result_document,file.path(output_dir,"result.json"),auto_unbox=TRUE,pretty=TRUE,digits=NA,na="null")',
-    'saveRDS(list(model=model,spec_digest="'+spec.digest+'",session=sessionInfo()),file.path(output_dir,"model.rds"))'
+    'saveRDS(list(model=model,unadjusted_model=unadjusted_model,trimmed_model=trimmed_model,spec_digest="'+spec.digest+'",session=sessionInfo()),file.path(output_dir,"model.rds"))'
   ].join('\n');
 }
 module.exports = { generateModelScript };

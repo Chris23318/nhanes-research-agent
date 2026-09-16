@@ -1,7 +1,8 @@
 const crypto = require('node:crypto');
-const CORE_KEYS = ['schemaVersion','outcomeFamily','exposureTransform','outcomeTransform','outcomeThreshold','population','weightVariable','weightChoiceConfirmed','strataVariable','psuVariable','cycles','exposureMappings','outcomeMappings','covariates','associationOnly','cleaningDigest'];
+const CORE_KEYS_V11 = ['schemaVersion','outcomeFamily','exposureTransform','outcomeTransform','outcomeThreshold','population','weightVariable','weightChoiceConfirmed','strataVariable','psuVariable','cycles','exposureMappings','outcomeMappings','covariates','associationOnly','cleaningDigest'];
+const CORE_KEYS_V12 = [...CORE_KEYS_V11, 'weightPolicy', 'sensitivityPlan'];
 function digestCore(core) { return crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex'); }
-function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const core=Object.fromEntries(CORE_KEYS.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
+function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const keys=spec.schemaVersion==='1.2'?CORE_KEYS_V12:CORE_KEYS_V11,core=Object.fromEntries(keys.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
 
 function createModelSpec(project, input = {}) {
   const fail = (message, status = 400) => { const error = new Error(message); error.status = status; throw error; };
@@ -42,7 +43,13 @@ function createModelSpec(project, input = {}) {
     return { concept:item.concept, encoding: item.encoding, mappings };
   });
   if (new Set(covariates.map(item => item.concept)).size !== covariates.length) fail('协变量不能重复');
-  const core = { schemaVersion:'1.1', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, weightChoiceConfirmed:true, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest };
+  const weightAdvice=require('./weight-policy').createWeightAdvice(project,{selectedConcepts:covariates.map(item=>item.concept)});
+  if(weightAdvice.blockers.length)fail(`权重策略尚不能自动执行：${weightAdvice.blockers.join('; ')}`,409);
+  const overrideReason=typeof input.weightOverrideReason==='string'?input.weightOverrideReason.trim().slice(0,500):'';
+  if(weight.variable!==weightAdvice.recommendedWeight&&overrideReason.length<10)fail(`当前最小分析子样本推荐 ${weightAdvice.recommendedWeight}；如需改用 ${weight.variable}，请提供至少10字的依据`);
+  const weightPolicy={...weightAdvice,selectedWeight:weight.variable,overrideReason:weight.variable===weightAdvice.recommendedWeight?null:overrideReason,confirmed:true};
+  const sensitivityPlan=[{id:'unadjusted',label:'同一完整案例样本的未调整模型'},{id:'weight_trim_1_99',label:'权重按第1和第99百分位截尾'}];
+  const core = { schemaVersion:'1.2', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, weightChoiceConfirmed:true, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest, weightPolicy, sensitivityPlan };
   return { ...core, digest:digestCore(core), status:'approved_for_code_generation_not_execution', approvedAt:new Date().toISOString(), actor:typeof input.actor==='string'&&input.actor.trim()?input.actor.trim().slice(0,100):'researcher' };
 }
 
