@@ -28,7 +28,7 @@ async function api(req,res,url){
   if(req.method==='POST'&&codebookRoute)return json(res,200,await require('./src/orchestrator').reviewCodebooks(codebookRoute[1]));
   const selectionRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/candidate-selection$/);
   if(req.method==='POST'&&selectionRoute){const input=await body(req);return json(res,200,Array.isArray(input.items)?require('./src/orchestrator').saveCandidates(selectionRoute[1],input):require('./src/orchestrator').saveCandidate(selectionRoute[1],input));}
-  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.6.0',mode:'agent-orchestrated-mvp'});
+  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.7.0',mode:'agent-orchestrated-mvp'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/variables')return json(res,200,{items:searchCatalog(url.searchParams.get('q')||''),mode:'verified-demo-snapshot'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/cdc'){return json(res,200,await fetchOfficialCatalog({component:url.searchParams.get('component')||'Demographics',cycle:url.searchParams.get('cycle')||'',query:url.searchParams.get('q')||'',limit:url.searchParams.get('limit')||100}))}
   if(req.method==='POST'&&url.pathname==='/api/tools/pubmed/search'){const input=await body(req);return json(res,200,await searchPubMed(input,{email:process.env.NCBI_EMAIL,apiKey:process.env.NCBI_API_KEY,tool:'nhanes_research_agent'}))}

@@ -1,8 +1,9 @@
 const crypto = require('node:crypto');
 const CORE_KEYS_V11 = ['schemaVersion','outcomeFamily','exposureTransform','outcomeTransform','outcomeThreshold','population','weightVariable','weightChoiceConfirmed','strataVariable','psuVariable','cycles','exposureMappings','outcomeMappings','covariates','associationOnly','cleaningDigest'];
 const CORE_KEYS_V12 = [...CORE_KEYS_V11, 'weightPolicy', 'sensitivityPlan'];
+const CORE_KEYS_V13 = [...CORE_KEYS_V12, 'missingDataPolicy'];
 function digestCore(core) { return crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex'); }
-function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const keys=spec.schemaVersion==='1.2'?CORE_KEYS_V12:CORE_KEYS_V11,core=Object.fromEntries(keys.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
+function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const keys=spec.schemaVersion==='1.3'?CORE_KEYS_V13:spec.schemaVersion==='1.2'?CORE_KEYS_V12:CORE_KEYS_V11,core=Object.fromEntries(keys.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
 
 function createModelSpec(project, input = {}) {
   const fail = (message, status = 400) => { const error = new Error(message); error.status = status; throw error; };
@@ -19,6 +20,8 @@ function createModelSpec(project, input = {}) {
   if (!Number.isFinite(populationAgeMin) || populationAgeMin < 0 || populationAgeMin > 85) fail('最低年龄必须是 0 至 85 岁');
   if (input.acknowledgeAssociationOnly !== true) fail('必须确认横断面结果仅解释为关联');
   if (input.acknowledgeWeightChoice !== true) fail('必须确认所选权重适用于最小分析子样本');
+  const missingDataStrategy=input.missingDataStrategy||'complete_case';
+  if(missingDataStrategy!=='complete_case')fail('当前受控执行器仅支持 complete_case；多重插补需单独冻结插补模型');
   const variables = project.variables || [], cycles = project.intent?.cycles || [];
   if (!cycles.length) fail('至少需要一个 NHANES 周期', 409);
   const roleMappings = role => variables.filter(item => item.role === role && item.confirmationStatus === 'codebook_and_cleaning_approved');
@@ -49,7 +52,8 @@ function createModelSpec(project, input = {}) {
   if(weight.variable!==weightAdvice.recommendedWeight&&overrideReason.length<10)fail(`当前最小分析子样本推荐 ${weightAdvice.recommendedWeight}；如需改用 ${weight.variable}，请提供至少10字的依据`);
   const weightPolicy={...weightAdvice,selectedWeight:weight.variable,overrideReason:weight.variable===weightAdvice.recommendedWeight?null:overrideReason,confirmed:true};
   const sensitivityPlan=[{id:'unadjusted',label:'同一完整案例样本的未调整模型'},{id:'weight_trim_1_99',label:'权重按第1和第99百分位截尾'}];
-  const core = { schemaVersion:'1.2', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, weightChoiceConfirmed:true, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest, weightPolicy, sensitivityPlan };
+  const missingDataPolicy={strategy:'complete_case',diagnosticsRequired:true,structuralMissingnessRequiresReview:true};
+  const core = { schemaVersion:'1.3', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, weightChoiceConfirmed:true, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest, weightPolicy, sensitivityPlan, missingDataPolicy };
   return { ...core, digest:digestCore(core), status:'approved_for_code_generation_not_execution', approvedAt:new Date().toISOString(), actor:typeof input.actor==='string'&&input.actor.trim()?input.actor.trim().slice(0,100):'researcher' };
 }
 
