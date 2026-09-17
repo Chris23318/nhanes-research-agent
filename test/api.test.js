@@ -7,7 +7,8 @@ let base;
 test.before(async()=>{await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${server.address().port}`});
 test.after(()=>server.close());
 
-test('health endpoint exposes version and browser security headers',async()=>{const response=await fetch(`${base}/api/health`);assert.equal(response.status,200);const body=await response.json();assert.equal(body.mode,'agent-orchestrated-mvp');assert.equal(body.version,'2.9.0');assert.equal(response.headers.get('x-frame-options'),'DENY');assert.match(response.headers.get('content-security-policy'),/script-src 'self'/)});
+test('health endpoint exposes version and browser security headers',async()=>{const response=await fetch(`${base}/api/health`);assert.equal(response.status,200);const body=await response.json();assert.equal(body.mode,'agent-orchestrated-mvp');assert.equal(body.version,'2.10.0');assert.equal(response.headers.get('x-frame-options'),'DENY');assert.match(response.headers.get('content-security-policy'),/script-src 'self'/)});
+test('web app includes an accessible Agent waiting transition',async()=>{const page=await fetch(base).then(response=>response.text()),script=await fetch(`${base}/app.js`).then(response=>response.text());assert.match(page,/id="agentTransition"/);assert.match(page,/aria-live="polite"/);assert.match(page,/id="transitionMinimize"/);assert.match(script,/beginAgentTransition/);assert.match(script,/updateAgentTransition/);assert.match(script,/endAgentTransition/)});
 
 test('catalog endpoint returns provenance',async()=>{const response=await fetch(`${base}/api/catalog/variables?q=LBXVIDMS`);const body=await response.json();assert.equal(body.items.length,1);assert.equal(body.items[0].provenance.publisher,'CDC/NCHS')});
 
