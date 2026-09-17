@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { resolveVariables } = require('../src/catalog');
-const { executeOnce, newJob, startFullExecution } = require('../src/full-execution');
+const { executeOnce, newJob, startFullExecution, cancelFullExecution } = require('../src/full-execution');
 
 function approvedProject() {
   const intent = {
@@ -47,4 +47,14 @@ test('one-click execution records a failed data cache phase', async () => {
     pollMs: 1,
     maxWaitMs: 50
   }), /CDC unavailable/);
+});
+
+test('queued one-click execution can be cancelled without starting work', async () => {
+  const project = { ...approvedProject(), id: 'prj_9999999999999999' };
+  const started = startFullExecution(project);
+  const cancelled = cancelFullExecution(project.id);
+  assert.equal(cancelled.id, started.id);
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.completedAt !== null, true);
+  await new Promise(resolve => setImmediate(resolve));
 });

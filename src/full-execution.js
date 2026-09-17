@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { validateDataManifest, buildDataManifest } = require('./data-manifest');
-const { startDataCache, getDataCache } = require('./data-cache');
-const { startAnalysis, getAnalysis } = require('./analysis-runner');
+const { startDataCache, getDataCache, cancelDataCache } = require('./data-cache');
+const { startAnalysis, getAnalysis, cancelAnalysis } = require('./analysis-runner');
 
 const jobs = new Map();
 const queue = [];
@@ -26,6 +26,8 @@ function publicJob(job) {
     analysis: job.analysis || null
   };
 }
+function cancellationError() { const error = new Error('full execution cancelled by user'); error.code = 'TASK_CANCELLED'; error.cancelled = true; return error; }
+function assertActive(job) { if (job.cancelRequested) throw cancellationError(); }
 
 function begin(job, id) {
   const item = job.phases.find(value => value.id === id);
@@ -41,9 +43,10 @@ function complete(item, summary) {
   item.summary = summary;
 }
 
-async function waitFor(getter, terminal, maxWaitMs, pollMs) {
+async function waitFor(getter, terminal, maxWaitMs, pollMs, job, cancel) {
   const deadline = Date.now() + maxWaitMs;
   for (;;) {
+    if (job?.cancelRequested) { cancel?.(); throw cancellationError(); }
     const value = getter();
     if (terminal.includes(value.status)) return value;
     if (Date.now() >= deadline) throw new Error(`execution timed out while ${value.status}`);
@@ -63,13 +66,17 @@ async function executeOnce(project, job, options = {}) {
     startCache: options.startCache || (value => startDataCache(value)),
     getCache: options.getCache || (id => getDataCache(id)),
     startAnalysis: options.startAnalysis || (value => startAnalysis(value)),
-    getAnalysis: options.getAnalysis || (id => getAnalysis(id))
+    getAnalysis: options.getAnalysis || (id => getAnalysis(id)),
+    cancelCache: options.cancelCache || (id => cancelDataCache(id)),
+    cancelAnalysis: options.cancelAnalysis || (id => cancelAnalysis(id))
   };
   const pollMs = options.pollMs || 1000;
   const maxWaitMs = options.maxWaitMs || 20 * 60 * 1000;
 
+  assertActive(job);
   const validationPhase = begin(job, 'validate_data');
   const validation = await deps.validate(buildDataManifest(project));
+  assertActive(job);
   if (!validation.summary || validation.summary.invalid > 0 || validation.summary.valid !== validation.summary.total) {
     throw new Error('one or more CDC XPT files failed validation');
   }
@@ -77,13 +84,13 @@ async function executeOnce(project, job, options = {}) {
 
   const cachePhase = begin(job, 'cache_data');
   deps.startCache(project);
-  const cache = await waitFor(() => deps.getCache(project.id), ['completed', 'failed'], maxWaitMs, pollMs);
+  const cache = await waitFor(() => deps.getCache(project.id), ['completed', 'failed', 'cancelled'], maxWaitMs, pollMs, job, () => deps.cancelCache(project.id));
   if (cache.status !== 'completed') throw new Error(cache.error || 'data cache failed');
   complete(cachePhase, { files: cache.completedFiles, cachedFiles: cache.cachedFiles, bytesDownloaded: cache.bytesDownloaded });
 
   const analysisPhase = begin(job, 'run_analysis');
   deps.startAnalysis(project);
-  const analysis = await waitFor(() => deps.getAnalysis(project.id), ['completed', 'failed'], maxWaitMs, pollMs);
+  const analysis = await waitFor(() => deps.getAnalysis(project.id), ['completed', 'failed', 'cancelled'], maxWaitMs, pollMs, job, () => deps.cancelAnalysis(project.id));
   if (analysis.status !== 'completed') throw new Error(analysis.error || 'R analysis failed');
   complete(analysisPhase, { runId: analysis.id || null, analyticN: analysis.result?.flow?.analytic_complete_case || null });
 
@@ -101,13 +108,14 @@ async function run(job, project, options) {
     job.currentPhase = null;
   } catch (error) {
     const current = job.phases.find(value => value.id === job.currentPhase);
+    const cancelled = job.cancelRequested || error.cancelled;
     if (current) {
-      current.status = 'failed';
+      current.status = cancelled ? 'cancelled' : 'failed';
       current.completedAt = new Date().toISOString();
-      current.summary = { error: String(error.message || error).slice(0, 500) };
+      current.summary = cancelled ? { cancelled: true } : { error: String(error.message || error).slice(0, 500) };
     }
-    job.status = 'failed';
-    job.error = String(error.message || error).slice(0, 500);
+    job.status = cancelled ? 'cancelled' : 'failed';
+    job.error = cancelled ? null : String(error.message || error).slice(0, 500);
   }
   job.completedAt = new Date().toISOString();
 }
@@ -131,7 +139,8 @@ function newJob(project) {
     startedAt: new Date().toISOString(),
     completedAt: null,
     error: null,
-    analysis: null
+    analysis: null,
+    cancelRequested: false
   };
 }
 
@@ -155,5 +164,6 @@ function getFullExecution(projectId) {
   const job = jobs.get(projectId);
   return job ? publicJob(job) : { projectId, status: 'not_started', currentPhase: null, phases: [], startedAt: null, completedAt: null, error: null, analysis: null };
 }
+function cancelFullExecution(projectId) { const job = jobs.get(projectId); if (!job || !['queued','running'].includes(job.status)) return getFullExecution(projectId); job.cancelRequested = true; if (job.status === 'queued') { const index = queue.findIndex(item => item.job === job); if (index >= 0) queue.splice(index, 1); job.status = 'cancelled'; job.completedAt = new Date().toISOString(); } else { cancelDataCache(projectId); cancelAnalysis(projectId); } return publicJob(job); }
 
-module.exports = { executeOnce, startFullExecution, getFullExecution, newJob };
+module.exports = { executeOnce, startFullExecution, getFullExecution, cancelFullExecution, newJob };

@@ -5,9 +5,9 @@ const {searchPubMed}=require('./src/pubmed');
 const {generateRProject}=require('./src/analysis-package');
 const {createAnalysisArchive}=require('./src/archive');
 const {buildDataManifest,validateDataManifest}=require('./src/data-manifest');
-const {startDataCache,getDataCache}=require('./src/data-cache');
-const {startAnalysis,getAnalysis,getAnalysisArchive,getAnalysisReport,getAnalysisQuality}=require('./src/analysis-runner');
-const {startFullExecution,getFullExecution}=require('./src/full-execution');
+const {startDataCache,getDataCache,cancelDataCache}=require('./src/data-cache');
+const {startAnalysis,getAnalysis,cancelAnalysis,getAnalysisArchive,getAnalysisReport,getAnalysisQuality}=require('./src/analysis-runner');
+const {startFullExecution,getFullExecution,cancelFullExecution}=require('./src/full-execution');
 const {fetchOfficialCatalog}=require('./src/cdc-catalog');
 const {parseQuestion}=require('./src/question-parser');
 const {SECURITY_HEADERS,createRateLimiter}=require('./src/http-security');
@@ -28,7 +28,7 @@ async function api(req,res,url){
   if(req.method==='POST'&&codebookRoute)return json(res,200,await require('./src/orchestrator').reviewCodebooks(codebookRoute[1]));
   const selectionRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/candidate-selection$/);
   if(req.method==='POST'&&selectionRoute){const input=await body(req);return json(res,200,Array.isArray(input.items)?require('./src/orchestrator').saveCandidates(selectionRoute[1],input):require('./src/orchestrator').saveCandidate(selectionRoute[1],input));}
-  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.11.0',mode:'agent-orchestrated-mvp'});
+  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.12.0',mode:'agent-orchestrated-mvp'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/variables')return json(res,200,{items:searchCatalog(url.searchParams.get('q')||''),mode:'verified-demo-snapshot'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/cdc'){return json(res,200,await fetchOfficialCatalog({component:url.searchParams.get('component')||'Demographics',cycle:url.searchParams.get('cycle')||'',query:url.searchParams.get('q')||'',limit:url.searchParams.get('limit')||100}))}
   if(req.method==='POST'&&url.pathname==='/api/tools/pubmed/search'){const input=await body(req);return json(res,200,await searchPubMed(input,{email:process.env.NCBI_EMAIL,apiKey:process.env.NCBI_API_KEY,tool:'nhanes_research_agent'}))}
@@ -41,6 +41,7 @@ async function api(req,res,url){
   if(req.method==='POST'&&action==='run'){runProject(projectId).catch(console.error);return json(res,202,{projectId,status:'running'})}
   if(req.method==='POST'&&action==='execute')return json(res,202,startFullExecution(getProject(projectId)))
   if(req.method==='GET'&&action==='execute')return json(res,200,getFullExecution(projectId))
+  if(req.method==='DELETE'&&action==='execute')return json(res,200,cancelFullExecution(projectId))
   if(req.method==='POST'&&action==='approve')return json(res,200,approveProject(projectId,await body(req)));
   if(req.method==='POST'&&action==='evidence')return json(res,200,saveEvidence(projectId,await body(req)));
   if(req.method==='GET'&&action==='analysis-package')return json(res,200,generateRProject(getProject(projectId)));
@@ -49,8 +50,10 @@ async function api(req,res,url){
   if(req.method==='POST'&&action==='data-manifest-validate')return json(res,200,await validateDataManifest(buildDataManifest(getProject(projectId))));
   if(req.method==='POST'&&action==='data-cache')return json(res,202,startDataCache(getProject(projectId)));
   if(req.method==='GET'&&action==='data-cache')return json(res,200,getDataCache(projectId));
+  if(req.method==='DELETE'&&action==='data-cache')return json(res,200,cancelDataCache(projectId));
   if(req.method==='POST'&&action==='analysis-run')return json(res,202,startAnalysis(getProject(projectId)));
   if(req.method==='GET'&&action==='analysis-run')return json(res,200,getAnalysis(projectId));
+  if(req.method==='DELETE'&&action==='analysis-run')return json(res,200,cancelAnalysis(projectId));
   if(req.method==='GET'&&action==='analysis-quality')return json(res,200,getAnalysisQuality(projectId));
   if(req.method==='GET'&&action==='analysis-report'){const report=getAnalysisReport(getProject(projectId));res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src data:"});return res.end(report)}
   if(req.method==='GET'&&action==='analysis-result-download'){const archive=getAnalysisArchive(getProject(projectId));res.writeHead(200,{'Content-Type':'application/gzip','Content-Disposition':`attachment; filename="nhanes-results-${projectId}.tar.gz"`,'Content-Length':archive.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(archive)}
