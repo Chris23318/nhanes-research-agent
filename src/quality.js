@@ -24,7 +24,7 @@ function evaluateResult(result = {}) {
 }
 
 function evaluateGenericResult(result = {}) {
-  const flow = result.flow || {}, coefficients = Array.isArray(result.coefficients) ? result.coefficients : [], sensitivity=Array.isArray(result.sensitivityCoefficients)?result.sensitivityCoefficients:[],missingness=Array.isArray(result.missingnessDiagnostics)?result.missingnessDiagnostics:[];
+  const flow = result.flow || {}, coefficients = Array.isArray(result.coefficients) ? result.coefficients : [], sensitivity=Array.isArray(result.sensitivityCoefficients)?result.sensitivityCoefficients:[],missingness=Array.isArray(result.missingnessDiagnostics)?result.missingnessDiagnostics:[],descriptives=Array.isArray(result.descriptiveStatistics)?result.descriptiveStatistics:[];
   const merged = Number(flow.merged), eligible = Number(flow.population_eligible), analytic = Number(flow.analytic_complete_case);
   const flowValid = Number.isInteger(merged) && Number.isInteger(eligible) && Number.isInteger(analytic) && merged >= eligible && eligible >= analytic && analytic >= 30;
   const validCoefficient = item => {
@@ -37,12 +37,14 @@ function evaluateGenericResult(result = {}) {
   const weightDiagnosticsValid=weightValues.every(Number.isFinite)&&weightValues.every(value=>value>0)&&weightValues.every((value,index)=>index===0||value>=weightValues[index-1])&&Number(weights.positive)===analytic;
   const designDiagnosticsValid=Number(design.degreesFreedom)>0&&Number(design.strata)>0&&Number(design.psu)>Number(design.strata);
   const sensitivityValid=sensitivity.length>=2&&sensitivity.every(validCoefficient)&&new Set(sensitivity.map(item=>item.model)).has('unadjusted')&&new Set(sensitivity.map(item=>item.model)).has('weight_trim_1_99');
-  const strictSurvey=['generic_survey_v2','generic_survey_v3'].includes(result.analysisMode),isV3=result.analysisMode==='generic_survey_v3',completeCases=result.completeCaseDiagnostics||{},model=result.modelDiagnostics||{};
+  const strictSurvey=['generic_survey_v2','generic_survey_v3','generic_survey_v4'].includes(result.analysisMode),strictDiagnostics=['generic_survey_v3','generic_survey_v4'].includes(result.analysisMode),isV4=result.analysisMode==='generic_survey_v4',completeCases=result.completeCaseDiagnostics||{},model=result.modelDiagnostics||{};
   const missingnessValid=missingness.length>=5&&missingness.every(item=>typeof item.variable==='string'&&item.variable&&Number.isInteger(Number(item.missing_n))&&Number(item.missing_n)>=0&&Number(item.missing_n)<=eligible&&finite(item.missing_pct)&&Number(item.missing_pct)>=0&&Number(item.missing_pct)<=100);
   const expectedRetention=eligible>0?analytic/eligible:NaN,completeCaseValid=Number(completeCases.populationN)===eligible&&Number(completeCases.completeN)===analytic&&finite(completeCases.retention)&&Math.abs(Number(completeCases.retention)-expectedRetention)<1e-8;
   const modelDiagnosticsValid=model.converged===true&&Number(model.rank)===Number(model.parameters)&&Number(model.parameters)>0&&Number(model.residualDf)>0;
   const conditionNumber=Number(model.conditionNumber),conditioningAcceptable=Number.isFinite(conditionNumber)&&conditionNumber>0&&conditionNumber<=1000;
   const attritionAcceptable=completeCaseValid&&Number(completeCases.retention)>=0.5&&missingness.every(item=>Number(item.missing_pct)<=50);
+  const descriptiveMetrics=new Set(['weighted_mean','weighted_prevalence','weighted_proportion']),descriptiveVariables=new Set(descriptives.map(item=>item.variable));
+  const descriptivesValid=descriptives.length>=2&&descriptiveVariables.has('analysis_exposure')&&descriptiveVariables.has('analysis_outcome')&&descriptives.every(item=>{const estimate=Number(item.estimate),low=Number(item.ci_low),high=Number(item.ci_high),se=Number(item.std_error),n=Number(item.unweighted_n),bounded=!['weighted_prevalence','weighted_proportion'].includes(item.metric)||(estimate>=0&&estimate<=1);return typeof item.variable==='string'&&item.variable&&descriptiveMetrics.has(item.metric)&&Number.isInteger(n)&&n>0&&n<=analytic&&[item.estimate,item.std_error,item.ci_low,item.ci_high].every(finite)&&se>=0&&low<=estimate&&estimate<=high&&bounded});
   const checks = [
     check('result_status','error',result.status === 'completed','分析执行状态必须为 completed',{value:result.status}),
     check('sample_flow','error',flowValid,'合并和完整案例样本数必须有效，且最终样本不少于30',flow),
@@ -53,14 +55,15 @@ function evaluateGenericResult(result = {}) {
     check('weight_diagnostics',strictSurvey?'error':'warning',weightDiagnosticsValid,'权重分布必须为正、有序并覆盖全部分析样本',weights),
     check('survey_design_diagnostics',strictSurvey?'error':'warning',designDiagnosticsValid,'复杂抽样设计自由度、分层和 PSU 必须有效',design),
     check('sensitivity_models',strictSurvey?'error':'warning',sensitivityValid,'必须完成未调整模型和权重截尾敏感性分析',{models:sensitivity.map(item=>item.model)}),
-    check('missingness_diagnostics',isV3?'error':'warning',missingnessValid&&completeCaseValid,'必须逐变量记录缺失数量、比例和完整案例保留率',{rows:missingness.length,completeCases}),
+    check('missingness_diagnostics',strictDiagnostics?'error':'warning',missingnessValid&&completeCaseValid,'必须逐变量记录缺失数量、比例和完整案例保留率',{rows:missingness.length,completeCases}),
     check('complete_case_attrition','warning',attritionAcceptable,'完整案例保留率或单变量缺失比例低于预设提示阈值',{retention:completeCases.retention,maxMissingPct:missingness.length?Math.max(...missingness.map(item=>Number(item.missing_pct))):null}),
-    check('model_stability',isV3?'error':'warning',modelDiagnosticsValid,'模型必须收敛、满秩且具有正的残差自由度',model),
+    check('model_stability',strictDiagnostics?'error':'warning',modelDiagnosticsValid,'模型必须收敛、满秩且具有正的残差自由度',model),
     check('model_conditioning','warning',conditioningAcceptable,'模型矩阵条件数应为有限正数且不超过1000',{conditionNumber:model.conditionNumber}),
+    check('descriptive_statistics',isV4?'error':'warning',descriptivesValid,'必须为暴露、结局和模型协变量提供加权描述统计、未加权 n 与置信区间',{rows:descriptives.length,variables:[...descriptiveVariables]}),
     check('runtime_provenance','error',Boolean(result.runtime?.rVersion&&result.runtime?.completedAt),'必须记录 R 版本和完成时间',result.runtime||{})
   ];
   const failed=checks.filter(item=>item.status==='failed').length,warnings=checks.filter(item=>item.status==='warning').length;
-  return {schemaVersion:'1.3',status:failed?'failed':'passed',checkedAt:new Date().toISOString(),summary:{total:checks.length,passed:checks.length-failed-warnings,failed,warnings},checks};
+  return {schemaVersion:'1.4',status:failed?'failed':'passed',checkedAt:new Date().toISOString(),summary:{total:checks.length,passed:checks.length-failed-warnings,failed,warnings},checks};
 }
 
 module.exports = { evaluateResult, evaluateGenericResult };
