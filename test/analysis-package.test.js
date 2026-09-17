@@ -11,6 +11,9 @@ test('analysis package is reproducible and never claims execution',async()=>{
   const artifact=generateRProject(project);
   assert.equal(artifact.status,'generated_not_executed');
   assert.match(artifact.files['analysis.R'],/svydesign/);
+  assert.match(artifact.files['analysis.R'],/full_design/);
+  assert.match(artifact.files['analysis.R'],/subset\(full_design/);
+  assert.ok(artifact.files['analysis.R'].indexOf('full_design <- svydesign')<artifact.files['analysis.R'].indexOf('design <- subset(full_design'));
   assert.match(artifact.files['analysis.R'],/WTMEC2YR \/ 6/);
   assert.match(artifact.files['README.md'],/not executed/);
   assert.ok(artifact.files['analysis-spec.json']);

@@ -20,7 +20,7 @@ function executionGate(project) {
     if (project.modelSpec.status !== 'approved_for_code_generation_not_execution') errors.push('model specification is not approved');
     if (!['continuous','binary'].includes(project.modelSpec.outcomeFamily)) errors.push('unsupported generic outcome family');
     for (const key of ['weightVariable','strataVariable','psuVariable']) if (!names.has(project.modelSpec[key])) errors.push(`model ${key} is missing`);
-    return { ready: errors.length === 0, errors, mode: 'generic_survey_v4' };
+    return { ready: errors.length === 0, errors, mode: project.modelSpec.schemaVersion === '1.5' ? 'generic_survey_v5' : 'generic_survey_v4' };
   }
   if (project.feasibility && project.feasibility.status !== 'executable') errors.push(`research feasibility is ${project.feasibility.status}`);
   if (!names.has('LBXVIDMS')) errors.push('supported exposure LBXVIDMS is missing');

@@ -213,7 +213,7 @@ function approveCleaning(projectId, input = {}) {
 function approveModelSpec(projectId, input = {}) {
   const project = getProject(projectId);
   project.modelSpec = require('./model-spec').createModelSpec(project, input);
-  project.feasibility = { ...(project.feasibility || {}), status:'executable', supportedPipeline:'generic_survey_v4', blockers:[], message:'变量、周期、清洗规则、权重策略、缺失策略、描述统计和通用 survey 模型均已冻结，可在最终确认方案后执行' };
+  project.feasibility = { ...(project.feasibility || {}), status:'executable', supportedPipeline:'generic_survey_v5', blockers:[], message:'变量、周期、清洗规则、权重策略、缺失策略、survey 子总体分析、描述统计和通用模型均已冻结，可在最终确认方案后执行' };
   project.agentPlan = buildAgentPlan(project);
   defaultStore.save(project, 'model_spec.approved', { digest:project.modelSpec.digest, actor:project.modelSpec.actor, outcomeFamily:project.modelSpec.outcomeFamily });
   return project;

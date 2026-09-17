@@ -3,8 +3,9 @@ const CORE_KEYS_V11 = ['schemaVersion','outcomeFamily','exposureTransform','outc
 const CORE_KEYS_V12 = [...CORE_KEYS_V11, 'weightPolicy', 'sensitivityPlan'];
 const CORE_KEYS_V13 = [...CORE_KEYS_V12, 'missingDataPolicy'];
 const CORE_KEYS_V14 = [...CORE_KEYS_V13, 'descriptivePlan'];
+const CORE_KEYS_V15 = [...CORE_KEYS_V14, 'surveyDomainPlan'];
 function digestCore(core) { return crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex'); }
-function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const keys=spec.schemaVersion==='1.4'?CORE_KEYS_V14:spec.schemaVersion==='1.3'?CORE_KEYS_V13:spec.schemaVersion==='1.2'?CORE_KEYS_V12:CORE_KEYS_V11,core=Object.fromEntries(keys.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
+function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const keys=spec.schemaVersion==='1.5'?CORE_KEYS_V15:spec.schemaVersion==='1.4'?CORE_KEYS_V14:spec.schemaVersion==='1.3'?CORE_KEYS_V13:spec.schemaVersion==='1.2'?CORE_KEYS_V12:CORE_KEYS_V11,core=Object.fromEntries(keys.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
 
 function createModelSpec(project, input = {}) {
   const fail = (message, status = 400) => { const error = new Error(message); error.status = status; throw error; };
@@ -55,7 +56,8 @@ function createModelSpec(project, input = {}) {
   const sensitivityPlan=[{id:'unadjusted',label:'同一完整案例样本的未调整模型'},{id:'weight_trim_1_99',label:'权重按第1和第99百分位截尾'}];
   const missingDataPolicy={strategy:'complete_case',diagnosticsRequired:true,structuralMissingnessRequiresReview:true};
   const descriptivePlan={population:'analytic_complete_case',variables:'all_model_variables',weighted:true,confidenceLevel:0.95,includeUnweightedN:true};
-  const core = { schemaVersion:'1.4', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, weightChoiceConfirmed:true, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest, weightPolicy, sensitivityPlan, missingDataPolicy, descriptivePlan };
+  const surveyDomainPlan={method:'survey_subset',designPopulation:'all_records_with_valid_design_fields',analysisDomain:'eligible_complete_cases',defineDesignBeforeDomainSubset:true};
+  const core = { schemaVersion:'1.5', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, weightChoiceConfirmed:true, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest, weightPolicy, sensitivityPlan, missingDataPolicy, descriptivePlan, surveyDomainPlan };
   return { ...core, digest:digestCore(core), status:'approved_for_code_generation_not_execution', approvedAt:new Date().toISOString(), actor:typeof input.actor==='string'&&input.actor.trim()?input.actor.trim().slice(0,100):'researcher' };
 }
 

@@ -37,7 +37,7 @@ function evaluateGenericResult(result = {}) {
   const weightDiagnosticsValid=weightValues.every(Number.isFinite)&&weightValues.every(value=>value>0)&&weightValues.every((value,index)=>index===0||value>=weightValues[index-1])&&Number(weights.positive)===analytic;
   const designDiagnosticsValid=Number(design.degreesFreedom)>0&&Number(design.strata)>0&&Number(design.psu)>Number(design.strata);
   const sensitivityValid=sensitivity.length>=2&&sensitivity.every(validCoefficient)&&new Set(sensitivity.map(item=>item.model)).has('unadjusted')&&new Set(sensitivity.map(item=>item.model)).has('weight_trim_1_99');
-  const strictSurvey=['generic_survey_v2','generic_survey_v3','generic_survey_v4'].includes(result.analysisMode),strictDiagnostics=['generic_survey_v3','generic_survey_v4'].includes(result.analysisMode),isV4=result.analysisMode==='generic_survey_v4',completeCases=result.completeCaseDiagnostics||{},model=result.modelDiagnostics||{};
+  const strictSurvey=['generic_survey_v2','generic_survey_v3','generic_survey_v4','generic_survey_v5'].includes(result.analysisMode),strictDiagnostics=['generic_survey_v3','generic_survey_v4','generic_survey_v5'].includes(result.analysisMode),strictDescriptives=['generic_survey_v4','generic_survey_v5'].includes(result.analysisMode),isV5=result.analysisMode==='generic_survey_v5',completeCases=result.completeCaseDiagnostics||{},model=result.modelDiagnostics||{},domain=result.domainDiagnostics||{};
   const missingnessValid=missingness.length>=5&&missingness.every(item=>typeof item.variable==='string'&&item.variable&&Number.isInteger(Number(item.missing_n))&&Number(item.missing_n)>=0&&Number(item.missing_n)<=eligible&&finite(item.missing_pct)&&Number(item.missing_pct)>=0&&Number(item.missing_pct)<=100);
   const expectedRetention=eligible>0?analytic/eligible:NaN,completeCaseValid=Number(completeCases.populationN)===eligible&&Number(completeCases.completeN)===analytic&&finite(completeCases.retention)&&Math.abs(Number(completeCases.retention)-expectedRetention)<1e-8;
   const modelDiagnosticsValid=model.converged===true&&Number(model.rank)===Number(model.parameters)&&Number(model.parameters)>0&&Number(model.residualDf)>0;
@@ -45,6 +45,7 @@ function evaluateGenericResult(result = {}) {
   const attritionAcceptable=completeCaseValid&&Number(completeCases.retention)>=0.5&&missingness.every(item=>Number(item.missing_pct)<=50);
   const descriptiveMetrics=new Set(['weighted_mean','weighted_prevalence','weighted_proportion']),descriptiveVariables=new Set(descriptives.map(item=>item.variable));
   const descriptivesValid=descriptives.length>=2&&descriptiveVariables.has('analysis_exposure')&&descriptiveVariables.has('analysis_outcome')&&descriptives.every(item=>{const estimate=Number(item.estimate),low=Number(item.ci_low),high=Number(item.ci_high),se=Number(item.std_error),n=Number(item.unweighted_n),bounded=!['weighted_prevalence','weighted_proportion'].includes(item.metric)||(estimate>=0&&estimate<=1);return typeof item.variable==='string'&&item.variable&&descriptiveMetrics.has(item.metric)&&Number.isInteger(n)&&n>0&&n<=analytic&&[item.estimate,item.std_error,item.ci_low,item.ci_high].every(finite)&&se>=0&&low<=estimate&&estimate<=high&&bounded});
+  const domainCounts=[domain.fullDesignN,domain.populationEligibleN,domain.analyticDomainN,domain.excludedInvalidDesignN].map(Number),domainValid=domain.method==='survey_subset'&&domainCounts.every(Number.isInteger)&&domainCounts.every(value=>value>=0)&&Number(domain.fullDesignN)>=analytic&&Number(domain.populationEligibleN)===eligible&&Number(domain.analyticDomainN)===analytic&&Number(domain.fullDesignN)+Number(domain.excludedInvalidDesignN)===merged;
   const checks = [
     check('result_status','error',result.status === 'completed','分析执行状态必须为 completed',{value:result.status}),
     check('sample_flow','error',flowValid,'合并和完整案例样本数必须有效，且最终样本不少于30',flow),
@@ -59,11 +60,12 @@ function evaluateGenericResult(result = {}) {
     check('complete_case_attrition','warning',attritionAcceptable,'完整案例保留率或单变量缺失比例低于预设提示阈值',{retention:completeCases.retention,maxMissingPct:missingness.length?Math.max(...missingness.map(item=>Number(item.missing_pct))):null}),
     check('model_stability',strictDiagnostics?'error':'warning',modelDiagnosticsValid,'模型必须收敛、满秩且具有正的残差自由度',model),
     check('model_conditioning','warning',conditioningAcceptable,'模型矩阵条件数应为有限正数且不超过1000',{conditionNumber:model.conditionNumber}),
-    check('descriptive_statistics',isV4?'error':'warning',descriptivesValid,'必须为暴露、结局和模型协变量提供加权描述统计、未加权 n 与置信区间',{rows:descriptives.length,variables:[...descriptiveVariables]}),
+    check('descriptive_statistics',strictDescriptives?'error':'warning',descriptivesValid,'必须为暴露、结局和模型协变量提供加权描述统计、未加权 n 与置信区间',{rows:descriptives.length,variables:[...descriptiveVariables]}),
+    ...(isV5?[check('survey_domain_analysis','error',domainValid,'必须先在有效抽样设计记录上定义 survey design，再以 survey subset 进入目标分析域',domain)]:[]),
     check('runtime_provenance','error',Boolean(result.runtime?.rVersion&&result.runtime?.completedAt),'必须记录 R 版本和完成时间',result.runtime||{})
   ];
   const failed=checks.filter(item=>item.status==='failed').length,warnings=checks.filter(item=>item.status==='warning').length;
-  return {schemaVersion:'1.4',status:failed?'failed':'passed',checkedAt:new Date().toISOString(),summary:{total:checks.length,passed:checks.length-failed-warnings,failed,warnings},checks};
+  return {schemaVersion:'1.5',status:failed?'failed':'passed',checkedAt:new Date().toISOString(),summary:{total:checks.length,passed:checks.length-failed-warnings,failed,warnings},checks};
 }
 
 module.exports = { evaluateResult, evaluateGenericResult };
