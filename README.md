@@ -17,6 +17,7 @@ npm run dev
 - 所有耗时研究 API 提供分阶段过场动画、实时进度、已等待时间和可最小化后台状态；刷新页面后可恢复完整分析任务进度
 - 完整分析、数据缓存和 R 进程支持安全取消；进度轮询遇到临时网络故障会自动退避重试
 - 数据缓存、R 分析和一键执行队列持久化到 SQLite；服务器或容器重启后自动恢复未完成任务
+- 研究审计事件使用 SHA-256 前向哈希链防篡改，验证结果与完整审计轨迹随分析结果包导出
 - 可选的单研究员安全登录：scrypt 密码哈希、HMAC 签名 HttpOnly/SameSite 会话、CSRF 防护和登录限流；仓库不包含默认密码
 - CDC 官方目录候选发现、概念—周期覆盖矩阵、跨周期兼容性提示、逐周期代码本取证与 SHA-256 审计
 - 变量选择、缺失码/单位清洗规则和统计模型的分层人工确认
@@ -44,6 +45,7 @@ npm run dev
 GET  /api/health
 POST /api/projects
 GET  /api/projects/:id
+GET  /api/projects/:id/audit
 POST /api/projects/:id/run
 GET  /api/projects/:id/execute
 POST /api/projects/:id/execute
