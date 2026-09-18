@@ -11,12 +11,21 @@ const {startFullExecution,getFullExecution,cancelFullExecution}=require('./src/f
 const {fetchOfficialCatalog}=require('./src/cdc-catalog');
 const {parseQuestion}=require('./src/question-parser');
 const {SECURITY_HEADERS,createRateLimiter}=require('./src/http-security');
+const {createAuth}=require('./src/auth');
 const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.md':'text/markdown; charset=utf-8'};
 const limiter=createRateLimiter(),heavy=/\/(?:run|execute|codebook-review|data-manifest-validate|data-cache|analysis-run)$|\/api\/tools\/(?:pubmed\/search|parse-question)$/;
+const auth=createAuth();
 function enforceRate(req,url){const key=req.socket.remoteAddress||'unknown',normal=limiter.check(key,'all',300,60000);if(!normal.allowed)return normal;if(req.method==='POST'&&heavy.test(url.pathname))return limiter.check(key,'heavy',20,600000);return normal}
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
 async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
 async function api(req,res,url){
+  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.14.0',mode:'agent-orchestrated-mvp',authEnabled:auth.enabled});
+  if(req.method==='GET'&&url.pathname==='/api/auth/session')return json(res,200,auth.session(req));
+  if(req.method==='POST'&&url.pathname==='/api/auth/login'){const rate=limiter.check(req.socket.remoteAddress||'unknown','login',10,15*60*1000);if(!rate.allowed)return json(res,429,{error:{code:'RATE_LIMITED',message:'登录尝试过多，请稍后重试'}});const input=await body(req);if(!auth.enabled||String(input.username||'')!==auth.username||!auth.verifyPassword(input.password)){return json(res,401,{error:{code:'INVALID_CREDENTIALS',message:'用户名或密码错误'}})}const token=auth.issue();res.setHeader('Set-Cookie',auth.cookie(token));return json(res,200,auth.session({headers:{cookie:`nhanes_session=${token}`}}))}
+  const identity=auth.authenticate(req);
+  if(auth.enabled&&!identity)return json(res,401,{error:{code:'AUTH_REQUIRED',message:'请先登录'}});
+  if(auth.enabled&&!['GET','HEAD','OPTIONS'].includes(req.method)&&url.pathname!=='/api/auth/logout'&&!auth.validCsrf(req,identity))return json(res,403,{error:{code:'CSRF_REJECTED',message:'安全令牌无效，请刷新页面后重试'}});
+  if(req.method==='POST'&&url.pathname==='/api/auth/logout'){if(auth.enabled&&!auth.validCsrf(req,identity))return json(res,403,{error:{code:'CSRF_REJECTED',message:'安全令牌无效'}});res.setHeader('Set-Cookie',auth.expiredCookie());return json(res,200,{authenticated:false})}
   const weightAdviceRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/weight-advice$/);
   if(req.method==='POST'&&weightAdviceRoute)return json(res,200,require('./src/orchestrator').getWeightAdvice(weightAdviceRoute[1],await body(req)));
   const modelSpecRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/model-spec$/);
@@ -28,7 +37,6 @@ async function api(req,res,url){
   if(req.method==='POST'&&codebookRoute)return json(res,200,await require('./src/orchestrator').reviewCodebooks(codebookRoute[1]));
   const selectionRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/candidate-selection$/);
   if(req.method==='POST'&&selectionRoute){const input=await body(req);return json(res,200,Array.isArray(input.items)?require('./src/orchestrator').saveCandidates(selectionRoute[1],input):require('./src/orchestrator').saveCandidate(selectionRoute[1],input));}
-  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.13.0',mode:'agent-orchestrated-mvp'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/variables')return json(res,200,{items:searchCatalog(url.searchParams.get('q')||''),mode:'verified-demo-snapshot'});
   if(req.method==='GET'&&url.pathname==='/api/catalog/cdc'){return json(res,200,await fetchOfficialCatalog({component:url.searchParams.get('component')||'Demographics',cycle:url.searchParams.get('cycle')||'',query:url.searchParams.get('q')||'',limit:url.searchParams.get('limit')||100}))}
   if(req.method==='POST'&&url.pathname==='/api/tools/pubmed/search'){const input=await body(req);return json(res,200,await searchPubMed(input,{email:process.env.NCBI_EMAIL,apiKey:process.env.NCBI_API_KEY,tool:'nhanes_research_agent'}))}

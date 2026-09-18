@@ -7,6 +7,7 @@
 :root{--ink:#17211d;--muted:#68736d;--paper:#f5f5ef;--line:#dfe3dc;--green:#174f3b;--soft:#edf3e3}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,"Microsoft YaHei",sans-serif}
+.auth-gate[hidden]{display:none}.auth-gate{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:22px;background:rgba(10,36,28,.72);backdrop-filter:blur(8px)}.auth-card{width:min(430px,100%);background:#fafbf8;border:1px solid #d8e1d8;padding:34px;box-shadow:0 28px 90px rgba(0,0,0,.34)}.auth-card h1{font:600 30px Georgia,"Microsoft YaHei",serif;margin:8px 0}.auth-card>p:not(.kicker){font-size:11px;color:var(--muted);line-height:1.7;margin-bottom:22px}.auth-card label{display:block;font-size:10px;color:#53645b;margin:12px 0}.auth-card input{display:block;width:100%;margin-top:6px;border:1px solid #cfd8cf;background:white;padding:12px;font:12px inherit}.auth-card>button{width:100%;padding:12px;margin-top:10px}.auth-card .warning{margin:12px 0}.profile button{display:block;border:0;background:transparent;color:#9ab3a8;padding:3px 0;font-size:8px;text-decoration:underline;cursor:pointer}
 .layout{display:grid;grid-template-columns:238px 1fr;min-height:100vh}
 aside{background:#102d24;color:#dce8e1;padding:25px 18px}
 .brand{display:flex;align-items:center;gap:11px;font-size:16px}

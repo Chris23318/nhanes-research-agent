@@ -17,6 +17,7 @@ npm run dev
 - 所有耗时研究 API 提供分阶段过场动画、实时进度、已等待时间和可最小化后台状态；刷新页面后可恢复完整分析任务进度
 - 完整分析、数据缓存和 R 进程支持安全取消；进度轮询遇到临时网络故障会自动退避重试
 - 数据缓存、R 分析和一键执行队列持久化到 SQLite；服务器或容器重启后自动恢复未完成任务
+- 可选的单研究员安全登录：scrypt 密码哈希、HMAC 签名 HttpOnly/SameSite 会话、CSRF 防护和登录限流；仓库不包含默认密码
 - CDC 官方目录候选发现、概念—周期覆盖矩阵、跨周期兼容性提示、逐周期代码本取证与 SHA-256 审计
 - 变量选择、缺失码/单位清洗规则和统计模型的分层人工确认
 - PubMed E-utilities 实时检索、筛选和方法学摘要
@@ -76,6 +77,16 @@ POST /api/tools/parse-question
 分析包接口生成数据准备脚本、`model.R`、冻结配置和机器可读 QC 规则。只有变量、清洗、模型和研究方案摘要完全匹配时，通用执行器才会运行；任何失败都会保留为失败状态，不会把代码生成冒充成分析结果。
 
 生产环境设置 `DATABASE_PATH=/data/nhanes.sqlite` 后，项目、审计事件和执行任务持久化到 SQLite。Compose 配置已挂载独立数据卷，容器更新不会删除项目数据；重启时未完成任务会从安全检查点重新排队。
+
+### 启用安全登录
+
+先在可信终端生成一次性随机管理员凭据：
+
+```bash
+npm run auth:generate
+```
+
+把输出的 `AUTH_USERNAME`、`AUTH_PASSWORD_HASH`、`AUTH_SESSION_SECRET` 和 `AUTH_COOKIE_SECURE` 写入服务器 `.env`；只保存 `ADMIN_PASSWORD` 给管理员本人，不要把它或生成结果提交到 Git。配置任一认证变量后，服务会要求全部认证参数有效，否则拒绝启动。公网部署应保留 `AUTH_COOKIE_SECURE=true` 并使用 HTTPS；仅本机 HTTP 调试时才设为 `false`。
 
 ## 测试
 
