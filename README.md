@@ -16,6 +16,7 @@ npm run dev
 - 六阶段 Agent 工作流与可见运行记录
 - 初始问题解析、变量发现、PubMed 检索和方案生成支持并发去重；服务器重启后自动恢复停留在 running 的 Agent 项目
 - 研究方案支持创建可追溯修订版：保留来源证据和模型配置、清空原批准签名，并在父子项目审计链中交叉记录
+- 生产容器提供 SQLite 就绪探针和 25 秒优雅停机窗口；更新期间拒绝新任务，未完成任务由持久化队列恢复
 - 所有耗时研究 API 提供分阶段过场动画、实时进度、已等待时间和可最小化后台状态；刷新页面后可恢复完整分析任务进度
 - 完整分析、数据缓存和 R 进程支持安全取消；进度轮询遇到临时网络故障会自动退避重试
 - 数据缓存、R 分析和一键执行队列持久化到 SQLite；服务器或容器重启后自动恢复未完成任务
@@ -45,6 +46,7 @@ npm run dev
 
 ```text
 GET  /api/health
+GET  /api/health/ready
 POST /api/projects
 GET  /api/projects/:id
 GET  /api/projects/:id/audit

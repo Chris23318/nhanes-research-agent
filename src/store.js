@@ -27,6 +27,7 @@ class ProjectStore{
   saveJob(scope,projectId,data){this.upsertJob.run(scope,projectId,JSON.stringify(data),new Date().toISOString());return data}
   getJob(scope,projectId){const row=this.selectJob.get(scope,projectId);return row?JSON.parse(row.data):null}
   listJobs(scope){return this.selectJobs.all(scope).map(row=>JSON.parse(row.data))}
+  health(){try{const quick=this.db.prepare('PRAGMA quick_check(1)').get();return{ok:quick?.quick_check==='ok',database:'sqlite',checkedAt:new Date().toISOString()}}catch(error){return{ok:false,database:'sqlite',checkedAt:new Date().toISOString(),error:String(error.message||error).slice(0,200)}}}
   auditTrail(projectId,limit=1000){let previous='';return this.selectAudit.all(projectId,Math.min(Math.max(Number(limit)||1000,1),5000)).map(row=>{const legacy=!row.event_hash,expected=legacy?null:ProjectStore.auditHash(row.project_id,row.event_type,row.payload,row.created_at,row.prev_hash||''),verified=legacy?null:row.prev_hash===previous&&expected===row.event_hash;if(!legacy)previous=row.event_hash;return{id:row.id,projectId:row.project_id,eventType:row.event_type,payload:JSON.parse(row.payload),createdAt:row.created_at,previousHash:row.prev_hash||null,eventHash:row.event_hash||null,verified}})}
   static auditHash(projectId,eventType,payloadJson,createdAt,previousHash=''){return crypto.createHash('sha256').update([projectId,eventType,payloadJson,createdAt,previousHash].join('\n')).digest('hex')}
   close(){this.db.close()}
