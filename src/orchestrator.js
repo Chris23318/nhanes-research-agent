@@ -50,6 +50,16 @@ function createProject(input) {
   return project;
 }
 
+function forkProject(projectId, input = {}) {
+  const source = getProject(projectId), now = new Date().toISOString(), sourceDigest = require('crypto').createHash('sha256').update(JSON.stringify(source)).digest('hex');
+  if (!['awaiting_approval','approved'].includes(source.status)) { const error=new Error('只有已生成方案的研究才能创建修订版');error.status=409;error.code='PROJECT_NOT_VERSIONABLE';throw error; }
+  const project = structuredClone(source);
+  project.id = id('prj'); project.parentProjectId = source.id; project.rootProjectId = source.rootProjectId || source.id; project.revision = Number(source.revision || 1) + 1; project.title = typeof input.title === 'string' && input.title.trim() ? input.title.trim().slice(0, 200) : `${source.title}（修订 ${project.revision}）`; project.status = 'awaiting_approval'; project.stage = 'protocol'; project.createdAt = now; project.events = []; project.approvals = [];
+  project.protocol = { ...(project.protocol || {}), frozen:false, frozenAt:null, approvalId:null, approvalRequired:true, parentProjectId:source.id, parentDigest:sourceDigest };
+  projects.set(project.id, project); defaultStore.save(project, 'project.forked', { parentProjectId:source.id, parentDigest:sourceDigest, revision:project.revision }); defaultStore.save(source, 'project.fork_created', { childProjectId:project.id, revision:project.revision });
+  return project;
+}
+
 function getProject(projectId) {
   const project = projects.get(projectId) || defaultStore.get(projectId);
   if (!project) { const error = new Error('project not found'); error.status = 404; error.code = 'NOT_FOUND'; throw error; }
@@ -239,4 +249,4 @@ function subscribe(projectId, listener) { bus.on(projectId, listener); return ()
 
 setImmediate(()=>{for(const project of defaultStore.list(100))if(project.status==='running')runProject(project.id).catch(error=>console.error('agent recovery failed',project.id,error.message));});
 
-module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, saveCandidates, reviewCodebooks, approveCleaning, approveModelSpec, getWeightAdvice, reconcileModelIntent, subscribe, projects };
+module.exports = { createProject, forkProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, saveCandidates, reviewCodebooks, approveCleaning, approveModelSpec, getWeightAdvice, reconcileModelIntent, subscribe, projects };
