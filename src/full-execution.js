@@ -2,10 +2,12 @@ const crypto = require('crypto');
 const { validateDataManifest, buildDataManifest } = require('./data-manifest');
 const { startDataCache, getDataCache, cancelDataCache } = require('./data-cache');
 const { startAnalysis, getAnalysis, cancelAnalysis } = require('./analysis-runner');
+const { defaultStore } = require('./store');
 
 const jobs = new Map();
 const queue = [];
 let workerActive = false;
+const JOB_SCOPE = 'full-execution';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -23,9 +25,11 @@ function publicJob(job) {
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     error: job.error,
-    analysis: job.analysis || null
+    analysis: job.analysis || null,
+    recovered: Boolean(job.recovered)
   };
 }
+function persistJob(job) { defaultStore.saveJob(JOB_SCOPE, job.projectId, { ...publicJob(job), project: job.project }); }
 function cancellationError() { const error = new Error('full execution cancelled by user'); error.code = 'TASK_CANCELLED'; error.cancelled = true; return error; }
 function assertActive(job) { if (job.cancelRequested) throw cancellationError(); }
 
@@ -34,6 +38,7 @@ function begin(job, id) {
   job.currentPhase = id;
   item.status = 'running';
   item.startedAt = new Date().toISOString();
+  persistJob(job);
   return item;
 }
 
@@ -101,7 +106,7 @@ async function executeOnce(project, job, options = {}) {
 }
 
 async function run(job, project, options) {
-  job.status = 'running';
+  job.status = 'running'; persistJob(job);
   try {
     await executeOnce(project, job, options);
     job.status = 'completed';
@@ -118,6 +123,7 @@ async function run(job, project, options) {
     job.error = cancelled ? null : String(error.message || error).slice(0, 500);
   }
   job.completedAt = new Date().toISOString();
+  persistJob(job);
 }
 
 async function drain() {
@@ -140,6 +146,8 @@ function newJob(project) {
     completedAt: null,
     error: null,
     analysis: null,
+    project: structuredClone(project),
+    recovered: false,
     cancelRequested: false
   };
 }
@@ -155,6 +163,7 @@ function startFullExecution(project, options = {}) {
   if (existing && ['queued', 'running'].includes(existing.status)) return publicJob(existing);
   const job = newJob(project);
   jobs.set(project.id, job);
+  persistJob(job);
   queue.push({ job, project: structuredClone(project), options });
   setImmediate(drain);
   return publicJob(job);
@@ -164,6 +173,10 @@ function getFullExecution(projectId) {
   const job = jobs.get(projectId);
   return job ? publicJob(job) : { projectId, status: 'not_started', currentPhase: null, phases: [], startedAt: null, completedAt: null, error: null, analysis: null };
 }
-function cancelFullExecution(projectId) { const job = jobs.get(projectId); if (!job || !['queued','running'].includes(job.status)) return getFullExecution(projectId); job.cancelRequested = true; if (job.status === 'queued') { const index = queue.findIndex(item => item.job === job); if (index >= 0) queue.splice(index, 1); job.status = 'cancelled'; job.completedAt = new Date().toISOString(); } else { cancelDataCache(projectId); cancelAnalysis(projectId); } return publicJob(job); }
+function cancelFullExecution(projectId) { const job = jobs.get(projectId); if (!job || !['queued','running'].includes(job.status)) return getFullExecution(projectId); job.cancelRequested = true; if (job.status === 'queued') { const index = queue.findIndex(item => item.job === job); if (index >= 0) queue.splice(index, 1); job.status = 'cancelled'; job.completedAt = new Date().toISOString(); } else { cancelDataCache(projectId); cancelAnalysis(projectId); } persistJob(job); return publicJob(job); }
+
+function recoverJobs() { for (const saved of defaultStore.listJobs(JOB_SCOPE)) { if (!saved?.projectId || !saved.project) continue; const active = ['queued','running'].includes(saved.status); const job = { ...saved, status: active ? 'queued' : saved.status, currentPhase: null, phases: active ? newJob(saved.project).phases : saved.phases, completedAt: active ? null : saved.completedAt, error: active ? null : saved.error, analysis: active ? null : saved.analysis, recovered: active || Boolean(saved.recovered), cancelRequested: false }; jobs.set(job.projectId, job); if (active) { persistJob(job); queue.push({ job, project: structuredClone(saved.project), options: {} }); } } if (queue.length) setImmediate(drain); }
+
+recoverJobs();
 
 module.exports = { executeOnce, startFullExecution, getFullExecution, cancelFullExecution, newJob };

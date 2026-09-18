@@ -5,12 +5,14 @@ const crypto = require('crypto');
 const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const { buildDataManifest, CDC_HOST } = require('./data-manifest');
+const { defaultStore } = require('./store');
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_JOB_BYTES = 250 * 1024 * 1024;
 const jobs = new Map();
 const queue = [];
 let workerActive = false;
+const JOB_SCOPE = 'data-cache';
 
 function cacheRoot() {
   if (process.env.DATA_CACHE_PATH) return path.resolve(process.env.DATA_CACHE_PATH);
@@ -19,8 +21,12 @@ function cacheRoot() {
 }
 function safeProjectId(value) { if (!/^prj_[a-f0-9]{16}$/.test(value)) { const error = new Error('invalid project id'); error.status = 400; throw error; } return value; }
 function assertOfficialFile(file) { const url = new URL(file.url); if (url.protocol !== 'https:' || url.hostname !== CDC_HOST || url.username || url.password || url.port || !/^\/Nchs\/Data\/Nhanes\/Public\/(?:19|20)\d{2}\/DataFiles\/[A-Z][A-Z0-9_]{1,40}_[A-Z]\.XPT$/i.test(url.pathname) || url.search || url.hash) { const error = new Error('data URL is not an approved CDC XPT file'); error.status = 400; throw error; } }
-function publicJob(job) { return { id: job.id, projectId: job.projectId, status: job.status, totalFiles: job.totalFiles, completedFiles: job.completedFiles, cachedFiles: job.cachedFiles, bytesDownloaded: job.bytesDownloaded, currentFile: job.currentFile, error: job.error, startedAt: job.startedAt, completedAt: job.completedAt, files: job.files }; }
+function publicJob(job) { return { id: job.id, projectId: job.projectId, status: job.status, totalFiles: job.totalFiles, completedFiles: job.completedFiles, cachedFiles: job.cachedFiles, bytesDownloaded: job.bytesDownloaded, currentFile: job.currentFile, error: job.error, startedAt: job.startedAt, completedAt: job.completedAt, files: job.files, recovered: Boolean(job.recovered) }; }
 function cancellationError() { const error = new Error('data cache cancelled by user'); error.code = 'TASK_CANCELLED'; error.cancelled = true; return error; }
+function persistJob(job) {
+  if (job.persist === false) return;
+  defaultStore.saveJob(JOB_SCOPE, job.projectId, { ...publicJob(job), manifest: job.manifest });
+}
 
 async function downloadFile(file, directory, fetchImpl, signal) {
   assertOfficialFile(file); fs.mkdirSync(directory, { recursive: true });
@@ -38,19 +44,32 @@ async function downloadFile(file, directory, fetchImpl, signal) {
 }
 
 async function runJob(job, manifest, options) {
-  job.status = 'running'; const directory = path.join(cacheRoot(), job.projectId); let total = 0;
-  try { for (const file of manifest.files) { if (job.cancelRequested) throw cancellationError(); job.currentFile = file.code; const result = await downloadFile(file, directory, options.fetchImpl || fetch, job.abortController.signal); total += result.bytes; if (total > MAX_JOB_BYTES) throw new Error('download job exceeds the total size limit'); job.completedFiles += 1; job.cachedFiles += result.cached ? 1 : 0; job.bytesDownloaded += result.cached ? 0 : result.bytes; job.files.push({ code: result.code, bytes: result.bytes, sha256: result.sha256 || null, cached: result.cached }); } job.status = 'completed'; job.completedAt = new Date().toISOString(); }
+  job.status = 'running'; persistJob(job); const directory = path.join(cacheRoot(), job.projectId); let total = 0;
+  try { for (const file of manifest.files) { if (job.cancelRequested) throw cancellationError(); job.currentFile = file.code; persistJob(job); const result = await downloadFile(file, directory, options.fetchImpl || fetch, job.abortController.signal); total += result.bytes; if (total > MAX_JOB_BYTES) throw new Error('download job exceeds the total size limit'); job.completedFiles += 1; job.cachedFiles += result.cached ? 1 : 0; job.bytesDownloaded += result.cached ? 0 : result.bytes; job.files.push({ code: result.code, bytes: result.bytes, sha256: result.sha256 || null, cached: result.cached }); persistJob(job); } job.status = 'completed'; job.completedAt = new Date().toISOString(); }
   catch (error) { job.status = job.cancelRequested || error.cancelled ? 'cancelled' : 'failed'; job.error = job.status === 'failed' ? error.message : null; job.completedAt = new Date().toISOString(); }
-  finally { job.currentFile = null; }
+  finally { job.currentFile = null; persistJob(job); }
 }
 function startDataCache(project, options = {}) {
   safeProjectId(project.id); const existing = jobs.get(project.id); if (existing && ['queued', 'running'].includes(existing.status)) return publicJob(existing);
   const manifest = buildDataManifest(project); if (!manifest.files.length) { const error = new Error('project has no supported CDC XPT files'); error.status = 409; throw error; }
-  const job = { id: `job_${crypto.randomBytes(8).toString('hex')}`, projectId: project.id, status: 'queued', totalFiles: manifest.files.length, completedFiles: 0, cachedFiles: 0, bytesDownloaded: 0, currentFile: null, error: null, startedAt: new Date().toISOString(), completedAt: null, files: [], cancelRequested: false, abortController: new AbortController() };
-  jobs.set(project.id, job); queue.push({ job, manifest, options }); setImmediate(drainQueue); return publicJob(job);
+  const job = { id: `job_${crypto.randomBytes(8).toString('hex')}`, projectId: project.id, status: 'queued', totalFiles: manifest.files.length, completedFiles: 0, cachedFiles: 0, bytesDownloaded: 0, currentFile: null, error: null, startedAt: new Date().toISOString(), completedAt: null, files: [], recovered: false, manifest, persist: !options.fetchImpl, cancelRequested: false, abortController: new AbortController() };
+  jobs.set(project.id, job); persistJob(job); queue.push({ job, manifest, options }); setImmediate(drainQueue); return publicJob(job);
 }
 async function drainQueue() { if (workerActive) return; const next = queue.shift(); if (!next) return; workerActive = true; try { await runJob(next.job, next.manifest, next.options); } finally { workerActive = false; setImmediate(drainQueue); } }
 function getDataCache(projectId) { safeProjectId(projectId); const job = jobs.get(projectId); return job ? publicJob(job) : { projectId, status: 'not_started', totalFiles: 0, completedFiles: 0, cachedFiles: 0, bytesDownloaded: 0, files: [] }; }
-function cancelDataCache(projectId) { safeProjectId(projectId); const job = jobs.get(projectId); if (!job || !['queued','running'].includes(job.status)) return getDataCache(projectId); job.cancelRequested = true; if (job.status === 'queued') { const index = queue.findIndex(item => item.job === job); if (index >= 0) queue.splice(index, 1); job.status = 'cancelled'; job.completedAt = new Date().toISOString(); } else job.abortController.abort(cancellationError()); return publicJob(job); }
+function cancelDataCache(projectId) { safeProjectId(projectId); const job = jobs.get(projectId); if (!job || !['queued','running'].includes(job.status)) return getDataCache(projectId); job.cancelRequested = true; if (job.status === 'queued') { const index = queue.findIndex(item => item.job === job); if (index >= 0) queue.splice(index, 1); job.status = 'cancelled'; job.completedAt = new Date().toISOString(); } else job.abortController.abort(cancellationError()); persistJob(job); return publicJob(job); }
+
+function recoverJobs() {
+  for (const saved of defaultStore.listJobs(JOB_SCOPE)) {
+    if (!saved?.projectId || !saved.manifest?.files?.length) continue;
+    const active = ['queued', 'running'].includes(saved.status);
+    const job = { ...saved, status: active ? 'queued' : saved.status, completedFiles: active ? 0 : saved.completedFiles, cachedFiles: active ? 0 : saved.cachedFiles, bytesDownloaded: active ? 0 : saved.bytesDownloaded, currentFile: null, error: active ? null : saved.error, completedAt: active ? null : saved.completedAt, files: active ? [] : (saved.files || []), recovered: active || Boolean(saved.recovered), persist: true, cancelRequested: false, abortController: new AbortController() };
+    jobs.set(job.projectId, job);
+    if (active) { persistJob(job); queue.push({ job, manifest: saved.manifest, options: {} }); }
+  }
+  if (queue.length) setImmediate(drainQueue);
+}
+
+recoverJobs();
 
 module.exports = { MAX_FILE_BYTES, MAX_JOB_BYTES, assertOfficialFile, downloadFile, startDataCache, getDataCache, cancelDataCache };
