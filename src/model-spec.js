@@ -11,10 +11,11 @@ function createModelSpec(project, input = {}) {
   const fail = (message, status = 400) => { const error = new Error(message); error.status = status; throw error; };
   if (project.status !== 'awaiting_approval') fail('请在方案待确认时设置统计模型', 409);
   if (!project.cleaningApproval) fail('请先确认变量映射和清洗规则', 409);
-  if (!['continuous', 'binary'].includes(input.outcomeFamily)) fail('结局类型必须为 continuous 或 binary');
+  if (!['continuous', 'binary', 'count'].includes(input.outcomeFamily)) fail('结局类型必须为 continuous、binary 或 count');
   if (!['raw', 'log2', 'per_sd'].includes(input.exposureTransform)) fail('不支持的暴露转换');
   if (!['raw', 'threshold_ge', 'threshold_eq'].includes(input.outcomeTransform)) fail('不支持的结局转换');
   if (input.outcomeFamily === 'binary' && input.outcomeTransform === 'raw') fail('二分类结局必须提供阈值或明确编码');
+  if (input.outcomeFamily !== 'binary' && input.outcomeTransform !== 'raw') fail('连续或计数结局必须保留原始编码');
   const thresholdNeeded = input.outcomeTransform !== 'raw';
   const threshold = Number(input.outcomeThreshold);
   if (thresholdNeeded && !Number.isFinite(threshold)) fail('结局阈值必须为有限数值');

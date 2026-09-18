@@ -20,7 +20,7 @@ function executionGate(project) {
     if (!project.cleaningApproval || project.modelSpec.cleaningDigest !== project.cleaningApproval.digest) errors.push('model specification does not match cleaning approval');
     if (project.status === 'approved' && project.protocol?.modelSpecDigest !== project.modelSpec.digest) errors.push('approved protocol does not bind the current model specification');
     if (project.modelSpec.status !== 'approved_for_code_generation_not_execution') errors.push('model specification is not approved');
-    if (!['continuous','binary'].includes(project.modelSpec.outcomeFamily)) errors.push('unsupported generic outcome family');
+    if (!['continuous','binary','count'].includes(project.modelSpec.outcomeFamily)) errors.push('unsupported generic outcome family');
     for (const key of ['weightVariable','strataVariable','psuVariable']) if (!names.has(project.modelSpec[key])) errors.push(`model ${key} is missing`);
     return { ready: errors.length === 0, errors, mode: project.modelSpec.schemaVersion === '1.5' ? 'generic_survey_v5' : 'generic_survey_v4' };
   }

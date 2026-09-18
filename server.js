@@ -19,7 +19,7 @@ function enforceRate(req,url){const key=req.socket.remoteAddress||'unknown',norm
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
 async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
 async function api(req,res,url){
-  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.14.0',mode:'agent-orchestrated-mvp',authEnabled:auth.enabled});
+  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.15.0',mode:'agent-orchestrated-mvp',authEnabled:auth.enabled});
   if(req.method==='GET'&&url.pathname==='/api/auth/session')return json(res,200,auth.session(req));
   if(req.method==='POST'&&url.pathname==='/api/auth/login'){const rate=limiter.check(req.socket.remoteAddress||'unknown','login',10,15*60*1000);if(!rate.allowed)return json(res,429,{error:{code:'RATE_LIMITED',message:'登录尝试过多，请稍后重试'}});const input=await body(req);if(!auth.enabled||String(input.username||'')!==auth.username||!auth.verifyPassword(input.password)){return json(res,401,{error:{code:'INVALID_CREDENTIALS',message:'用户名或密码错误'}})}const token=auth.issue();res.setHeader('Set-Cookie',auth.cookie(token));return json(res,200,auth.session({headers:{cookie:`nhanes_session=${token}`}}))}
   const identity=auth.authenticate(req);

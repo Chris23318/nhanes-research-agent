@@ -30,7 +30,7 @@ function evaluateGenericResult(result = {}) {
   const validCoefficient = item => {
     const effect = Number(item.effect), low = Number(item.ci_low), high = Number(item.ci_high), p = Number(item.p_value);
     const ordered = [item.effect,item.ci_low,item.ci_high].every(finite) && low <= effect && effect <= high;
-    return ordered && finite(item.p_value) && p >= 0 && p <= 1 && (item.effect_type !== 'odds_ratio' || low > 0);
+    return ordered && finite(item.p_value) && p >= 0 && p <= 1 && (!['odds_ratio','rate_ratio'].includes(item.effect_type) || low > 0);
   };
   const exposure = coefficients.find(item => item.term === 'analysis_exposure');
   const weights=result.weightDiagnostics||{},design=result.designDiagnostics||{},weightValues=[weights.min,weights.p01,weights.median,weights.p99,weights.max].map(Number);
@@ -42,6 +42,7 @@ function evaluateGenericResult(result = {}) {
   const expectedRetention=eligible>0?analytic/eligible:NaN,completeCaseValid=Number(completeCases.populationN)===eligible&&Number(completeCases.completeN)===analytic&&finite(completeCases.retention)&&Math.abs(Number(completeCases.retention)-expectedRetention)<1e-8;
   const modelDiagnosticsValid=model.converged===true&&Number(model.rank)===Number(model.parameters)&&Number(model.parameters)>0&&Number(model.residualDf)>0;
   const conditionNumber=Number(model.conditionNumber),conditioningAcceptable=Number.isFinite(conditionNumber)&&conditionNumber>0&&conditionNumber<=1000;
+  const countModel=result.outcomeFamily==='count',dispersion=Number(model.dispersion),countDispersionValid=!countModel||(Number.isFinite(dispersion)&&dispersion>0);
   const attritionAcceptable=completeCaseValid&&Number(completeCases.retention)>=0.5&&missingness.every(item=>Number(item.missing_pct)<=50);
   const descriptiveMetrics=new Set(['weighted_mean','weighted_prevalence','weighted_proportion']),descriptiveVariables=new Set(descriptives.map(item=>item.variable));
   const descriptivesValid=descriptives.length>=2&&descriptiveVariables.has('analysis_exposure')&&descriptiveVariables.has('analysis_outcome')&&descriptives.every(item=>{const estimate=Number(item.estimate),low=Number(item.ci_low),high=Number(item.ci_high),se=Number(item.std_error),n=Number(item.unweighted_n),bounded=!['weighted_prevalence','weighted_proportion'].includes(item.metric)||(estimate>=0&&estimate<=1);return typeof item.variable==='string'&&item.variable&&descriptiveMetrics.has(item.metric)&&Number.isInteger(n)&&n>0&&n<=analytic&&[item.estimate,item.std_error,item.ci_low,item.ci_high].every(finite)&&se>=0&&low<=estimate&&estimate<=high&&bounded});
@@ -60,6 +61,7 @@ function evaluateGenericResult(result = {}) {
     check('complete_case_attrition','warning',attritionAcceptable,'完整案例保留率或单变量缺失比例低于预设提示阈值',{retention:completeCases.retention,maxMissingPct:missingness.length?Math.max(...missingness.map(item=>Number(item.missing_pct))):null}),
     check('model_stability',strictDiagnostics?'error':'warning',modelDiagnosticsValid,'模型必须收敛、满秩且具有正的残差自由度',model),
     check('model_conditioning','warning',conditioningAcceptable,'模型矩阵条件数应为有限正数且不超过1000',{conditionNumber:model.conditionNumber}),
+    ...(countModel?[check('count_dispersion','error',countDispersionValid,'计数模型必须记录有限且为正的离散参数',{dispersion:model.dispersion}),check('count_overdispersion','warning',countDispersionValid&&dispersion<=2,'计数结局存在明显过度离散时需要在报告中说明',{dispersion:model.dispersion})]:[]),
     check('descriptive_statistics',strictDescriptives?'error':'warning',descriptivesValid,'必须为暴露、结局和模型协变量提供加权描述统计、未加权 n 与置信区间',{rows:descriptives.length,variables:[...descriptiveVariables]}),
     ...(isV5?[check('survey_domain_analysis','error',domainValid,'必须先在有效抽样设计记录上定义 survey design，再以 survey subset 进入目标分析域',domain)]:[]),
     check('runtime_provenance','error',Boolean(result.runtime?.rVersion&&result.runtime?.completedAt),'必须记录 R 版本和完成时间',result.runtime||{})
