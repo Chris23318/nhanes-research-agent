@@ -12,6 +12,7 @@ const { buildAgentPlan, inferOutcomeType, modelFor } = require('./research-agent
 
 const projects = new Map();
 const bus = new EventEmitter();
+const activeRuns = new Map();
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -64,9 +65,9 @@ function emit(project, stage, status, message, data) {
   return event;
 }
 
-async function runProject(projectId, options = {}) {
+async function runProjectOnce(projectId, options = {}) {
   const project = getProject(projectId);
-  if (project.status === 'running') return project;
+  if (project.status === 'running') { project.stage = null; defaultStore.save(project, 'agent.recovered', { reason: 'service_restart_or_detached_request' }); }
   project.status = 'running';
   const work = async (stage, message, fn) => {
     if (project.stage) validateTransition(project.stage, stage);
@@ -120,6 +121,15 @@ async function runProject(projectId, options = {}) {
   project.status = 'awaiting_approval';
   emit(project, 'protocol', 'blocked', '等待研究者确认方案', { required: ['outcome_definition', 'covariate_set', 'assay_harmonization'] });
   return project;
+}
+
+async function runProject(projectId, options = {}) {
+  if (activeRuns.has(projectId)) return activeRuns.get(projectId);
+  const task = runProjectOnce(projectId, options);
+  activeRuns.set(projectId, task);
+  try { return await task; }
+  catch (error) { try { const project=getProject(projectId);project.status='failed';defaultStore.save(project,'agent.failed',{message:String(error.message||error).slice(0,300)}); } catch {} throw error; }
+  finally { activeRuns.delete(projectId); }
 }
 
 function approveProject(projectId, input = {}) {
@@ -226,5 +236,7 @@ function getWeightAdvice(projectId,input={}){
 }
 
 function subscribe(projectId, listener) { bus.on(projectId, listener); return () => bus.off(projectId, listener); }
+
+setImmediate(()=>{for(const project of defaultStore.list(100))if(project.status==='running')runProject(project.id).catch(error=>console.error('agent recovery failed',project.id,error.message));});
 
 module.exports = { createProject, getProject, listProjects, runProject, approveProject, saveEvidence, saveCandidate, saveCandidates, reviewCodebooks, approveCleaning, approveModelSpec, getWeightAdvice, reconcileModelIntent, subscribe, projects };
