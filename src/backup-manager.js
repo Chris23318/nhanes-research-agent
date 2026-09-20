@@ -14,6 +14,12 @@ function enabled(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
 }
 
+function automaticEnabled(options, environment = process.env) {
+  if (options.enabled !== undefined) return Boolean(options.enabled);
+  if (environment.AUTO_BACKUP_ENABLED !== undefined) return enabled(environment.AUTO_BACKUP_ENABLED);
+  return environment.NODE_ENV === 'production';
+}
+
 function isoFilename(date) {
   return `nhanes-${date.toISOString().replaceAll(':', '-').replaceAll('.', '-')}.sqlite`;
 }
@@ -28,7 +34,7 @@ class BackupManager {
   constructor(store, options = {}) {
     this.store = store;
     this.databasePath = options.databasePath ?? store.filename ?? process.env.DATABASE_PATH ?? ':memory:';
-    this.enabled = options.enabled ?? enabled(process.env.AUTO_BACKUP_ENABLED);
+    this.enabled = automaticEnabled(options);
     this.intervalMs = boundedNumber(options.intervalHours ?? process.env.BACKUP_INTERVAL_HOURS, 24, 1 / 60, 168) * 60 * 60 * 1000;
     this.retentionDays = boundedNumber(options.retentionDays ?? process.env.BACKUP_RETENTION_DAYS, 14, 1, 365);
     this.maxFiles = Math.floor(boundedNumber(options.maxFiles ?? process.env.BACKUP_MAX_FILES, 30, 1, 365));
@@ -143,4 +149,4 @@ class BackupManager {
   stop() { clearTimeout(this.timer); this.timer = null; this.nextRunAt = null; }
 }
 
-module.exports = { BACKUP_PATTERN, BackupManager, boundedNumber, enabled, isoFilename, fileDigest };
+module.exports = { BACKUP_PATTERN, BackupManager, boundedNumber, enabled, automaticEnabled, isoFilename, fileDigest };

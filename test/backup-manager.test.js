@@ -5,7 +5,14 @@ const os = require('os');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const { ProjectStore } = require('../src/store');
-const { BackupManager, BACKUP_PATTERN } = require('../src/backup-manager');
+const { BackupManager, BACKUP_PATTERN, automaticEnabled } = require('../src/backup-manager');
+
+test('automatic backups default on in production and remain explicitly configurable', () => {
+  assert.equal(automaticEnabled({}, { NODE_ENV: 'production' }), true);
+  assert.equal(automaticEnabled({}, { NODE_ENV: 'test' }), false);
+  assert.equal(automaticEnabled({}, { NODE_ENV: 'production', AUTO_BACKUP_ENABLED: 'false' }), false);
+  assert.equal(automaticEnabled({ enabled: true }, {}), true);
+});
 
 test('automatic backup creates an integrity-checked SQLite copy and checksum', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nhanes-auto-backup-')), database = path.join(root, 'nhanes.sqlite'), backupDir = path.join(root, 'backups'), store = new ProjectStore(database);
