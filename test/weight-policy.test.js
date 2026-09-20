@@ -31,10 +31,11 @@ test('laboratory weights require codebook review and dietary analyses are blocke
   assert.match(dietary.blockers.join(' '), /专用权重/);
 });
 
-test('nonstandard cycles never receive an automatic divisor', () => {
+test('the redesigned 2021-2023 release is allowed standalone', () => {
   const advice = createWeightAdvice(project('Questionnaire', ['2021-2023']));
-  assert.equal(advice.divisor, null);
-  assert.equal(advice.status, 'blocked');
+  assert.equal(advice.divisor, 1);
+  assert.equal(advice.formula, 'WTINT2YR / 1');
+  assert.equal(advice.status, 'review_required');
 });
 
 test('component inference is conservative for unknown files', () => {

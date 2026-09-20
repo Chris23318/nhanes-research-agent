@@ -1,4 +1,6 @@
-const CYCLES = ['2007-2008', '2009-2010', '2011-2012', '2013-2014', '2015-2016', '2017-2018'];
+const LEGACY_CYCLES = ['2007-2008', '2009-2010', '2011-2012', '2013-2014', '2015-2016', '2017-2018'];
+const CYCLES = LEGACY_CYCLES;
+const SUPPORTED_CYCLES = [...LEGACY_CYCLES, '2017-2020', '2021-2023'];
 
 const VARIABLES = [
   { role: 'exposure', concept: '血清 25(OH)D', variable: 'LBXVIDMS', source: 'VID', transform: 'nmol/L; verify cycle-specific assay harmonization', confidence: 0.96 },
@@ -12,7 +14,7 @@ const VARIABLES = [
   { role: 'design', concept: '访谈权重', variable: 'WTINT2YR', source: 'DEMO', transform: 'use for interview-only analyses; divide by pooled regular 2-year cycles', confidence: 1 },
   { role: 'design', concept: '分层变量', variable: 'SDMVSTRA', source: 'DEMO', transform: 'retain', confidence: 1 },
   { role: 'design', concept: 'PSU', variable: 'SDMVPSU', source: 'DEMO', transform: 'retain', confidence: 1 }
-].map(item => ({ ...item, cycles: CYCLES, provenance: { publisher: 'CDC/NCHS', verification: 'demo snapshot; verify against cycle codebook before execution' } }));
+].map(item => ({ ...item, cycles: LEGACY_CYCLES, provenance: { publisher: 'CDC/NCHS', verification: 'demo snapshot; verify against cycle codebook before execution' } }));
 
 function resolveVariables(intent) {
   const values = structuredClone(VARIABLES);
@@ -28,4 +30,4 @@ function searchCatalog(query = '') {
   return values.filter(item => terms.some(term => `${item.concept} ${item.variable} ${item.source}`.toLowerCase().includes(term)));
 }
 
-module.exports = { CYCLES, VARIABLES, resolveVariables, searchCatalog };
+module.exports = { CYCLES, SUPPORTED_CYCLES, VARIABLES, resolveVariables, searchCatalog };

@@ -1,4 +1,4 @@
-const { CYCLES } = require('./catalog');
+const { CYCLES, SUPPORTED_CYCLES } = require('./catalog');
 
 const concepts = {
   exposures: [
@@ -22,7 +22,7 @@ function parseCycles(question) {
   const years = [...question.matchAll(/(?:19|20)\d{2}/g)].map(match => Number(match[0]));
   if (years.length < 2) return { values: CYCLES, inferred: true };
   const start = Math.min(...years), end = Math.max(...years);
-  const values = CYCLES.filter(cycle => {
+  const values = SUPPORTED_CYCLES.filter(cycle => {
     const [cycleStart, cycleEnd] = cycle.split('-').map(Number);
     return cycleStart >= start && cycleEnd <= end;
   });

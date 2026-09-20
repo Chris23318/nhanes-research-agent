@@ -1,6 +1,6 @@
 const { EventEmitter } = require('events');
 const { id, validateQuestion, validateVariableMap, validateTransition, validateApproval } = require('./domain');
-const { CYCLES, resolveVariables } = require('./catalog');
+const { SUPPORTED_CYCLES, resolveVariables } = require('./catalog');
 const { defaultStore } = require('./store');
 const { parseQuestion } = require('./question-parser');
 const { interpretWithModel } = require('./model-runtime');
@@ -25,7 +25,7 @@ function reconcileModelIntent(fallback, value, model) {
   const outcome = deterministicOutcome
     ? fallback.outcome
     : { label: value.outcome, term: value.outcome, component: null, confidence: 0 };
-  const modelCycles = [...new Set((value.cycles || []).filter(cycle => CYCLES.includes(cycle)))];
+  const modelCycles = [...new Set((value.cycles || []).filter(cycle => SUPPORTED_CYCLES.includes(cycle)))];
   const cycles = modelCycles.length ? modelCycles : fallback.cycles;
   const covariates = [...new Set((value.covariates || []).map(item => String(item).trim()).filter(Boolean))];
   return {

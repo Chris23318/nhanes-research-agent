@@ -4,8 +4,9 @@ const CORE_KEYS_V12 = [...CORE_KEYS_V11, 'weightPolicy', 'sensitivityPlan'];
 const CORE_KEYS_V13 = [...CORE_KEYS_V12, 'missingDataPolicy'];
 const CORE_KEYS_V14 = [...CORE_KEYS_V13, 'descriptivePlan'];
 const CORE_KEYS_V15 = [...CORE_KEYS_V14, 'surveyDomainPlan'];
+const CORE_KEYS_V16 = [...CORE_KEYS_V15, 'advancedAnalysisPlan'];
 function digestCore(core) { return crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex'); }
-function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const keys=spec.schemaVersion==='1.5'?CORE_KEYS_V15:spec.schemaVersion==='1.4'?CORE_KEYS_V14:spec.schemaVersion==='1.3'?CORE_KEYS_V13:spec.schemaVersion==='1.2'?CORE_KEYS_V12:CORE_KEYS_V11,core=Object.fromEntries(keys.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
+function verifyModelSpec(spec) { if (!spec || typeof spec.digest !== 'string') return false; const keys=spec.schemaVersion==='1.6'?CORE_KEYS_V16:spec.schemaVersion==='1.5'?CORE_KEYS_V15:spec.schemaVersion==='1.4'?CORE_KEYS_V14:spec.schemaVersion==='1.3'?CORE_KEYS_V13:spec.schemaVersion==='1.2'?CORE_KEYS_V12:CORE_KEYS_V11,core=Object.fromEntries(keys.map(key=>[key,spec[key]])); return digestCore(core)===spec.digest; }
 
 function createModelSpec(project, input = {}) {
   const fail = (message, status = 400) => { const error = new Error(message); error.status = status; throw error; };
@@ -49,6 +50,13 @@ function createModelSpec(project, input = {}) {
     return { concept:item.concept, encoding: item.encoding, mappings };
   });
   if (new Set(covariates.map(item => item.concept)).size !== covariates.length) fail('协变量不能重复');
+  const nonlinearMethod=input.nonlinearMethod||'none';
+  if(!['none','restricted_cubic_spline'].includes(nonlinearMethod))fail('不支持的非线性分析方法');
+  const splineDf=nonlinearMethod==='restricted_cubic_spline'?Number(input.splineDf||4):null;
+  if(nonlinearMethod==='restricted_cubic_spline'&&![3,4,5].includes(splineDf))fail('限制性立方样条自由度必须为 3、4 或 5');
+  const subgroupConcepts=Array.isArray(input.subgroupConcepts)?[...new Set(input.subgroupConcepts.map(String))]:[];
+  if(subgroupConcepts.length>5)fail('亚组变量不能超过5个');
+  const subgroupPlan=subgroupConcepts.map(concept=>{const index=covariates.findIndex(item=>item.concept===concept);if(index<0)fail(`亚组变量必须先纳入协变量：${concept}`);if(covariates[index].encoding!=='factor')fail(`亚组变量必须按分类变量编码：${concept}`);return {concept,variable:`cov_${index+1}`,minimumUnweightedN:30,interactionTest:true}});
   const weightAdvice=require('./weight-policy').createWeightAdvice(project,{selectedConcepts:covariates.map(item=>item.concept)});
   if(weightAdvice.blockers.length)fail(`权重策略尚不能自动执行：${weightAdvice.blockers.join('; ')}`,409);
   const overrideReason=typeof input.weightOverrideReason==='string'?input.weightOverrideReason.trim().slice(0,500):'';
@@ -58,7 +66,8 @@ function createModelSpec(project, input = {}) {
   const missingDataPolicy={strategy:'complete_case',diagnosticsRequired:true,structuralMissingnessRequiresReview:true};
   const descriptivePlan={population:'analytic_complete_case',variables:'all_model_variables',weighted:true,confidenceLevel:0.95,includeUnweightedN:true};
   const surveyDomainPlan={method:'survey_subset',designPopulation:'all_records_with_valid_design_fields',analysisDomain:'eligible_complete_cases',defineDesignBeforeDomainSubset:true};
-  const core = { schemaVersion:'1.5', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, weightChoiceConfirmed:true, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest, weightPolicy, sensitivityPlan, missingDataPolicy, descriptivePlan, surveyDomainPlan };
+  const advancedAnalysisPlan={nonlinear:{method:nonlinearMethod,df:splineDf,referencePercentile:50,test:'survey_wald'},subgroups:subgroupPlan,multiplicity:{interactionPValues:'reported_unadjusted_exploratory'}};
+  const core = { schemaVersion:'1.6', outcomeFamily:input.outcomeFamily, exposureTransform:input.exposureTransform, outcomeTransform:input.outcomeTransform, outcomeThreshold:thresholdNeeded?threshold:null, population:{ageMin:populationAgeMin,pregnancyPolicy:project.intent?.population?.pregnancy||'not specified'}, weightVariable:weight.variable, weightChoiceConfirmed:true, strataVariable:'SDMVSTRA', psuVariable:'SDMVPSU', cycles:[...cycles], exposureMappings:exposure, outcomeMappings:outcome, covariates, associationOnly:true, cleaningDigest:project.cleaningApproval.digest, weightPolicy, sensitivityPlan, missingDataPolicy, descriptivePlan, surveyDomainPlan, advancedAnalysisPlan };
   return { ...core, digest:digestCore(core), status:'approved_for_code_generation_not_execution', approvedAt:new Date().toISOString(), actor:typeof input.actor==='string'&&input.actor.trim()?input.actor.trim().slice(0,100):'researcher' };
 }
 

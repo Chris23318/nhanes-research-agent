@@ -1,4 +1,5 @@
 function safe(value) { if (!/^[A-Z][A-Z0-9_]{0,39}$/.test(value)) throw new Error('unsafe variable in model specification'); return value; }
+function safeInternal(value) { if (!/^cov_[1-9][0-9]*$/.test(value)) throw new Error('unsafe internal variable in advanced analysis plan'); return value; }
 function cycleLiteral(value) { if (!/^20\d{2}-20\d{2}$/.test(value)) throw new Error('unsafe cycle in model specification'); return `"${value}"`; }
 function cycleExpression(mappings) {
   const clauses = [];
@@ -18,8 +19,33 @@ function generateModelScript(spec) {
   const family = spec.outcomeFamily === 'binary' ? 'quasibinomial()' : spec.outcomeFamily === 'count' ? 'quasipoisson(link="log")' : 'gaussian()';
   const ratioEffect = ['binary','count'].includes(spec.outcomeFamily);
   const effectType = spec.outcomeFamily === 'binary' ? 'odds_ratio' : spec.outcomeFamily === 'count' ? 'rate_ratio' : 'beta';
-  const analysisMode = spec.schemaVersion === '1.5' ? 'generic_survey_v5' : 'generic_survey_v4';
-  const resultSchema = spec.schemaVersion === '1.5' ? '2.4' : '2.3';
+  const analysisMode = spec.schemaVersion === '1.6' ? 'generic_survey_v6' : spec.schemaVersion === '1.5' ? 'generic_survey_v5' : 'generic_survey_v4';
+  const resultSchema = spec.schemaVersion === '1.6' ? '2.5' : spec.schemaVersion === '1.5' ? '2.4' : '2.3';
+  const advanced=spec.advancedAnalysisPlan||{nonlinear:{method:'none'},subgroups:[]};
+  const nonlinear=advanced.nonlinear?.method==='restricted_cubic_spline';
+  const splineDf=Number(advanced.nonlinear?.df||4);
+  const subgroupPlans=Array.isArray(advanced.subgroups)?advanced.subgroups:[];
+  const nonlinearCode=nonlinear?[
+    `spline_model <- svyglm(analysis_outcome ~ splines::ns(analysis_exposure,df=${splineDf})${covariates.length?' + '+covariates.map(x=>x.name).join(' + '):''},design=design,family=${family})`,
+    'nonlinear_comparison <- tryCatch(anova(model,spline_model,method="Wald",force=TRUE),error=function(e) NULL)',
+    'nonlinear_p <- if (is.null(nonlinear_comparison)) NA_real_ else { values <- unlist(nonlinear_comparison); candidate <- as.numeric(values[grepl("p",names(values),ignore.case=TRUE)]); candidate <- candidate[is.finite(candidate)&candidate>=0&candidate<=1]; if(length(candidate)) candidate[[1]] else NA_real_ }',
+    `nonlinear_result <- list(method="restricted_cubic_spline",df=${splineDf},comparison="linear_vs_spline_survey_wald",p_value=nonlinear_p,converged=isTRUE(spline_model$converged))`
+  ]:['spline_model <- NULL','nonlinear_result <- list(method="none",df=NULL,comparison=NULL,p_value=NULL,converged=NULL)'];
+  const subgroupCode=subgroupPlans.flatMap((plan,index)=>{
+    const variable=safeInternal(plan.variable),minimum=Number(plan.minimumUnweightedN||30),adjusters=covariates.map(x=>x.name).filter(name=>name!==variable),subFormula=`analysis_outcome ~ analysis_exposure${adjusters.length?' + '+adjusters.join(' + '):''}`,interactionFormula=`analysis_outcome ~ analysis_exposure * ${variable}${adjusters.length?' + '+adjusters.join(' + '):''}`;
+    return [
+      `subgroup_name <- "${variable}"`,
+      `subgroup_concept <- ${JSON.stringify(String(plan.concept))}`,
+      `subgroup_levels <- levels(droplevels(analytic[[subgroup_name]]))`,
+      `interaction_p <- tryCatch({ interaction_model <- svyglm(${interactionFormula},design=design,family=${family}); test <- regTermTest(interaction_model,~analysis_exposure:${variable},method="Wald"); as.numeric(test$p) },error=function(e) NA_real_)`,
+      'for (level_value in subgroup_levels) {',
+      `  keep <- as.character(design$variables[[subgroup_name]]) == level_value; subgroup_n <- sum(keep,na.rm=TRUE); if (subgroup_n < ${minimum}) next`,
+      '  subgroup_design <- design[keep,]; if (degf(subgroup_design)<=0) next',
+      `  subgroup_model <- tryCatch(svyglm(${subFormula},design=subgroup_design,family=${family}),error=function(e) NULL); if (is.null(subgroup_model)) next`,
+      `  subgroup_row <- extract_exposure(subgroup_model,paste0("subgroup_${index+1}")); subgroup_row$subgroup <- subgroup_concept; subgroup_row$level <- level_value; subgroup_row$unweighted_n <- subgroup_n; subgroup_row$interaction_p <- interaction_p; subgroup_rows[[length(subgroup_rows)+1]] <- subgroup_row`,
+      '}'
+    ];
+  });
   return [
     '# Generated from an approved model specification. Review artifacts before interpretation.',
     'suppressPackageStartupMessages({ library(survey); library(dplyr); library(jsonlite) })', 'options(survey.lonely.psu="adjust")',
@@ -82,13 +108,17 @@ function generateModelScript(spec) {
     `trimmed_model <- svyglm(${formula},design=trimmed_design,family=${family})`,
     'sensitivity_result <- bind_rows(extract_exposure(unadjusted_model,"unadjusted"),extract_exposure(trimmed_model,"weight_trim_1_99"))',
     'if (any(!is.finite(as.matrix(sensitivity_result[c("effect","ci_low","ci_high","p_value")]))) ) stop("Nonfinite sensitivity result")',
+    ...nonlinearCode,
+    'subgroup_rows <- list()',
+    ...subgroupCode,
+    'subgroup_result <- if(length(subgroup_rows)) bind_rows(subgroup_rows) else data.frame()',
     'weight_quantiles <- as.numeric(quantile(analytic$analysis_weight,probs=c(0,0.01,0.5,0.99,1),na.rm=TRUE,names=FALSE,type=8))',
     `design_diagnostics <- list(degreesFreedom=as.numeric(degf(design)),strata=length(unique(analytic[["${safe(spec.strataVariable)}"]])),psu=length(unique(interaction(analytic[["${safe(spec.strataVariable)}"]],analytic[["${safe(spec.psuVariable)}"]],drop=TRUE))))`,
     'domain_diagnostics <- list(method="survey_subset",fullDesignN=nrow(full_design$variables),populationEligibleN=population_n,analyticDomainN=nrow(analytic),excludedInvalidDesignN=assembled_n-nrow(full_design$variables))',
     'weight_diagnostics <- list(min=weight_quantiles[1],p01=weight_quantiles[2],median=weight_quantiles[3],p99=weight_quantiles[4],max=weight_quantiles[5],positive=sum(analytic$analysis_weight>0),trimmed=sum(analytic$analysis_weight<weight_limits[1] | analytic$analysis_weight>weight_limits[2]))',
-    'write.csv(flow,file.path(output_dir,"model-sample-flow.csv"),row.names=FALSE)', 'write.csv(missingness_result,file.path(output_dir,"missingness-diagnostics.csv"),row.names=FALSE)', 'write.csv(descriptive_result,file.path(output_dir,"descriptive-statistics.csv"),row.names=FALSE)', 'write.csv(coefficient_result,file.path(output_dir,"model-coefficients.csv"),row.names=FALSE)', 'write.csv(sensitivity_result,file.path(output_dir,"sensitivity-coefficients.csv"),row.names=FALSE)',
+    'write.csv(flow,file.path(output_dir,"model-sample-flow.csv"),row.names=FALSE)', 'write.csv(missingness_result,file.path(output_dir,"missingness-diagnostics.csv"),row.names=FALSE)', 'write.csv(descriptive_result,file.path(output_dir,"descriptive-statistics.csv"),row.names=FALSE)', 'write.csv(coefficient_result,file.path(output_dir,"model-coefficients.csv"),row.names=FALSE)', 'write.csv(sensitivity_result,file.path(output_dir,"sensitivity-coefficients.csv"),row.names=FALSE)', 'write.csv(subgroup_result,file.path(output_dir,"subgroup-results.csv"),row.names=FALSE)',
     'runtime <- list(rVersion=R.version.string,surveyVersion=as.character(packageVersion("survey")),havenVersion=as.character(packageVersion("haven")),completedAt=format(Sys.time(),tz="UTC",usetz=TRUE))',
-    `result_document <- list(schemaVersion="${resultSchema}",status="completed",analysisMode="${analysisMode}",analysis="survey-weighted ${spec.outcomeFamily} regression",outcomeFamily="${spec.outcomeFamily}",exposureUnit="${spec.exposureTransform}",cycles=c(${spec.cycles.map(cycleLiteral).join(',')}),weightRule="${weightRule}",weightDiagnostics=weight_diagnostics,designDiagnostics=design_diagnostics,domainDiagnostics=domain_diagnostics,missingnessDiagnostics=missingness_result,completeCaseDiagnostics=complete_case_diagnostics,modelDiagnostics=model_diagnostics,descriptiveStatistics=descriptive_result,flow=list(merged=assembled_n,population_eligible=population_n,analytic_complete_case=nrow(analytic)${spec.outcomeFamily === 'binary' ? ',outcome_cases=sum(analytic$analysis_outcome==1)' : ''}),coefficients=coefficient_result,sensitivityCoefficients=sensitivity_result,sensitivityPlan=c("unadjusted","weight_trim_1_99"),warnings=c("Cross-sectional association; causal interpretation is not supported.","Primary model uses complete cases; variable-level missingness and retention are reported, but multiple imputation was not executed.","Pregnancy restriction was not applied unless encoded in the approved population definition."),modelSpecDigest="${spec.digest}",runtime=runtime)`,
+    `result_document <- list(schemaVersion="${resultSchema}",status="completed",analysisMode="${analysisMode}",analysis="survey-weighted ${spec.outcomeFamily} regression",outcomeFamily="${spec.outcomeFamily}",exposureUnit="${spec.exposureTransform}",cycles=c(${spec.cycles.map(cycleLiteral).join(',')}),weightRule="${weightRule}",weightDiagnostics=weight_diagnostics,designDiagnostics=design_diagnostics,domainDiagnostics=domain_diagnostics,missingnessDiagnostics=missingness_result,completeCaseDiagnostics=complete_case_diagnostics,modelDiagnostics=model_diagnostics,descriptiveStatistics=descriptive_result,advancedAnalysisPlan=list(nonlinearMethod="${nonlinear?'restricted_cubic_spline':'none'}",splineDf=${nonlinear?splineDf:'NULL'},subgroupCount=${subgroupPlans.length}),nonlinearAnalysis=nonlinear_result,subgroupAnalyses=subgroup_result,flow=list(merged=assembled_n,population_eligible=population_n,analytic_complete_case=nrow(analytic)${spec.outcomeFamily === 'binary' ? ',outcome_cases=sum(analytic$analysis_outcome==1)' : ''}),coefficients=coefficient_result,sensitivityCoefficients=sensitivity_result,sensitivityPlan=c("unadjusted","weight_trim_1_99"),warnings=c("Cross-sectional association; causal interpretation is not supported.","Primary model uses complete cases; variable-level missingness and retention are reported, but multiple imputation was not executed.","Subgroup and nonlinear analyses are secondary; interaction P values are exploratory and unadjusted for multiplicity.","Pregnancy restriction was not applied unless encoded in the approved population definition."),modelSpecDigest="${spec.digest}",runtime=runtime)`,
     'write_json(result_document,file.path(output_dir,"result.json"),auto_unbox=TRUE,pretty=TRUE,digits=NA,na="null")',
     'saveRDS(list(model=model,unadjusted_model=unadjusted_model,trimmed_model=trimmed_model,spec_digest="'+spec.digest+'",session=sessionInfo()),file.path(output_dir,"model.rds"))'
   ].join('\n');

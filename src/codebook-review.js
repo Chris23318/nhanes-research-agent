@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
-const { SUFFIXES } = require('./data-manifest');
+const { fileMatchesCycle } = require('./data-manifest');
 function codebookUrl(file, cycle) {
-  if (!/^[A-Z][A-Z0-9_]{1,40}$/.test(file) || !SUFFIXES[cycle] || !file.endsWith(`_${SUFFIXES[cycle]}`)) throw new Error('文件与受支持周期不匹配');
+  if (!/^[A-Z][A-Z0-9_]{1,40}$/.test(file) || !fileMatchesCycle(file,cycle)) throw new Error('文件与受支持周期不匹配');
   return `https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/${cycle.slice(0,4)}/DataFiles/${file}.htm`;
 }
 async function inspectCodebook(selection, cycle, options = {}) {

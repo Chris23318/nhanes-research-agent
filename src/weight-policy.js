@@ -2,7 +2,7 @@ const REGULAR_TWO_YEAR = /^(?:19|20)\d{2}-(?:19|20)\d{2}$/;
 
 function inferComponent(item = {}) {
   if (item.sourceComponent) return item.sourceComponent;
-  const source = String(item.source || item.sourceFile || '').replace(/_[A-Z]$/, '').toUpperCase();
+  const source = String(item.source || item.sourceFile || '').replace(/^P_/i,'').replace(/_[A-Z]$/, '').toUpperCase();
   if (source === 'DEMO') return 'Demographics';
   if (/^(BMX|BPX|OHX|AUX|VIX)/.test(source)) return 'Examination';
   if (/^(DPQ|MCQ|SLQ|SMQ|PAQ|BPQ|DIQ|KIQ|HUQ|RXQ)/.test(source)) return 'Questionnaire';
@@ -24,11 +24,13 @@ function createWeightAdvice(project = {}, options = {}) {
   const dietary = components.includes('Dietary');
   const mec = components.some(component => component === 'Laboratory' || component === 'Examination' || component === 'Unknown');
   const recommendedWeight = dietary ? null : mec ? 'WTMEC2YR' : 'WTINT2YR';
-  const regularCycles = cycles.length > 0 && cycles.every(cycle => {
+  const legacyRegularCycles = cycles.length > 0 && cycles.every(cycle => {
     if (!REGULAR_TWO_YEAR.test(cycle)) return false;
     const [start, end] = cycle.split('-').map(Number);
     return end === start + 1 && end <= 2018;
   });
+  const latestStandalone=cycles.length===1&&cycles[0]==='2021-2023';
+  const regularCycles=legacyRegularCycles||latestStandalone;
   const blockers = [];
   const cautions = [];
   if (!cycles.length) blockers.push('尚未确定 NHANES 周期');
@@ -37,7 +39,8 @@ function createWeightAdvice(project = {}, options = {}) {
   if (recommendedWeight && !availableWeights.includes(recommendedWeight)) blockers.push(`推荐权重 ${recommendedWeight} 尚未映射到全部周期`);
   if (components.includes('Laboratory')) cautions.push('实验室或子样本项目可能具有专用权重，必须逐周期核对组件代码本');
   if (components.includes('Unknown')) cautions.push('存在未识别组件，当前按 MEC 域保守推荐，必须人工核对');
-  const divisor = regularCycles ? cycles.length : null;
+  if(latestStandalone)cautions.push('2021–2023 使用新抽样设计；当前仅支持单周期分析，不与早期周期自动合并');
+  const divisor = regularCycles ? (latestStandalone?1:cycles.length) : null;
   return {
     schemaVersion: '1.0',
     status: blockers.length ? 'blocked' : cautions.length ? 'review_required' : 'recommended',

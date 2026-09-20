@@ -21,7 +21,7 @@ const {
 const { markdownReport } = require('./report');
 
 const FONT_FAMILY = 'Noto Sans SC';
-const CSV_COLUMNS = ['section', 'model', 'term', 'label', 'effect_type', 'estimate', 'ci_low', 'ci_high', 'p_value', 'unweighted_n', 'metric', 'level'];
+const CSV_COLUMNS = ['section', 'model', 'term', 'label', 'effect_type', 'estimate', 'ci_low', 'ci_high', 'p_value', 'unweighted_n', 'metric', 'level', 'subgroup', 'interaction_p'];
 
 function numeric(value, digits = 3) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '未记录';
@@ -73,6 +73,8 @@ function manuscriptDraft(project, result) {
   const sensitivity = (result.sensitivityCoefficients || []).length
     ? `敏感性分析包括 ${(result.sensitivityCoefficients || []).map(item => item.model).filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join('、')}。`
     : '未记录额外敏感性分析。';
+  const nonlinear=result.nonlinearAnalysis?.method==='restricted_cubic_spline'?`预设限制性立方样条（df=${result.nonlinearAnalysis.df}）比较线性与非线性模型，survey Wald P=${pvalue(result.nonlinearAnalysis.p_value)}。`:'未预设非线性模型。';
+  const subgroupRows=Array.isArray(result.subgroupAnalyses)?result.subgroupAnalyses:[],subgroupText=subgroupRows.length?`完成 ${new Set(subgroupRows.map(row=>row.subgroup)).size} 个预设亚组变量、${subgroupRows.length} 个分层估计；交互 P 值为探索性且未进行多重性校正。`:'未产生亚组估计。';
   return `# 论文 Methods / Results 草稿
 
 > 本文本由已冻结方案和通过质量门的分析结果自动生成，投稿前必须由研究者核对期刊格式、变量定义、文献引用与临床解释。
@@ -81,13 +83,13 @@ function manuscriptDraft(project, result) {
 
 本研究采用 NHANES ${cycles} 周期数据开展横断面分析。研究对象限定为 ${ageMin} 岁及以上人群。暴露变量为 ${exposure}，结局变量为 ${outcome}。所有分析均考虑 NHANES 复杂抽样设计，使用分层变量 ${spec.strataVariable || 'SDMVSTRA'}、整群变量 ${spec.psuVariable || 'SDMVPSU'} 和分析权重 ${result.weightRule || spec.weightVariable || '未记录'}。多周期权重按照预先冻结的方案进行合并。
 
-主模型采用${regression}，调整变量包括${covariates}。缺失数据主分析采用${spec.missingStrategy === 'complete_case' || !spec.missingStrategy ? '完整案例分析' : spec.missingStrategy}。分析先在完整 NHANES 抽样设计中定义权重、分层和 PSU，再通过 survey 子总体方法限制目标分析域，以保持方差估计的设计一致性。${sensitivity}
+主模型采用${regression}，调整变量包括${covariates}。缺失数据主分析采用${spec.missingDataPolicy?.strategy === 'complete_case' || !spec.missingDataPolicy?.strategy ? '完整案例分析' : spec.missingDataPolicy.strategy}。分析先在完整 NHANES 抽样设计中定义权重、分层和 PSU，再通过 survey 子总体方法限制目标分析域，以保持方差估计的设计一致性。${sensitivity}${nonlinear}${subgroupText}
 
 ## Results
 
 数据合并后共有 ${flow.merged ?? '未记录'} 条记录，其中 ${populationN} 人符合目标人群条件，${completeN} 人进入最终分析。${effectSentence(main)}
 
-加权描述性统计、主模型、敏感性分析、缺失模式和抽样设计诊断见随附结果表。自动质量控制共通过 ${result.qualitySummary?.passed ?? '全部必需'} 项必需检查。结果仅表示横断面关联，不能据此推断因果关系。
+加权描述性统计、主模型、敏感性分析、缺失模式和抽样设计诊断见随附结果表。${nonlinear}${subgroupText}自动质量控制共通过 ${result.qualitySummary?.passed ?? '全部必需'} 项必需检查。结果仅表示横断面关联，不能据此推断因果关系。
 
 ## Interpretation checklist
 
@@ -107,6 +109,8 @@ function resultTablesCsv(project, result) {
   for (const row of result.coefficients || []) rows.push({ section: 'main_model', model: row.model || 'primary', term: row.term, label: row.term, effect_type: row.effect_type, estimate: effect(row), ci_low: row.ci_low, ci_high: row.ci_high, p_value: row.p_value });
   for (const row of result.sensitivityCoefficients || []) rows.push({ section: 'sensitivity', model: row.model, term: row.term, label: row.term, effect_type: row.effect_type, estimate: effect(row), ci_low: row.ci_low, ci_high: row.ci_high, p_value: row.p_value });
   for (const row of result.descriptiveStatistics || []) rows.push({ section: 'table_1', model: '', term: row.variable, label: row.variable, estimate: row.estimate, ci_low: row.ci_low, ci_high: row.ci_high, unweighted_n: row.unweighted_n, metric: row.metric, level: row.level });
+  for (const row of result.subgroupAnalyses || []) rows.push({ section: 'subgroup', model: row.model, term: row.term, label: row.term, effect_type: row.effect_type, estimate: effect(row), ci_low: row.ci_low, ci_high: row.ci_high, p_value: row.p_value, unweighted_n: row.unweighted_n, level: row.level, subgroup: row.subgroup, interaction_p: row.interaction_p });
+  if(result.nonlinearAnalysis?.method==='restricted_cubic_spline')rows.push({section:'nonlinear',model:'restricted_cubic_spline',term:'analysis_exposure',label:`df=${result.nonlinearAnalysis.df}`,p_value:result.nonlinearAnalysis.p_value});
   for (const [label, value] of Object.entries(result.flow || {})) rows.push({ section: 'sample_flow', model: '', term: label, label, estimate: value });
   const metadata = [
     `# project_id=${project.id || ''}`,

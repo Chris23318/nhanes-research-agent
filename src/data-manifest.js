@@ -1,24 +1,26 @@
 const CDC_HOST = 'wwwn.cdc.gov';
-const SUFFIXES = { '2007-2008': 'E', '2009-2010': 'F', '2011-2012': 'G', '2013-2014': 'H', '2015-2016': 'I', '2017-2018': 'J' };
+const SUFFIXES = { '2007-2008': 'E', '2009-2010': 'F', '2011-2012': 'G', '2013-2014': 'H', '2015-2016': 'I', '2017-2018': 'J', '2021-2023': 'L' };
+const PREFIXES = { '2017-2020': 'P' };
 const ALLOWED_FILES = new Set(['DEMO', 'VID', 'DPQ', 'BMX']);
 const cache = new Map();
+function fileCodeForCycle(source,cycle){if(PREFIXES[cycle])return `${PREFIXES[cycle]}_${source}`;if(SUFFIXES[cycle])return `${source}_${SUFFIXES[cycle]}`;return null}
+function fileMatchesCycle(file,cycle){const marker=fileCodeForCycle('SOURCE',cycle);if(!marker)return false;return PREFIXES[cycle]?file.startsWith(`${PREFIXES[cycle]}_`):file.endsWith(`_${SUFFIXES[cycle]}`)}
 
 function buildDataManifest(project) {
   const cycles = project.intent?.cycles || [];
   const sources = [...new Set((project.variables || []).map(item => item.source).filter(source => ALLOWED_FILES.has(source)))];
   const files = [];
   for (const cycle of cycles) {
-    const suffix = SUFFIXES[cycle]; if (!suffix) continue;
+    if (!fileCodeForCycle('DEMO',cycle)) continue;
     for (const source of sources) {
-      const code = `${source}_${suffix}`, year = cycle.slice(0, 4), base = `https://${CDC_HOST}/Nchs/Data/Nhanes/Public/${year}/DataFiles/${code}`;
+      const code = fileCodeForCycle(source,cycle), year = cycle.slice(0, 4), base = `https://${CDC_HOST}/Nchs/Data/Nhanes/Public/${year}/DataFiles/${code}`;
       files.push({ cycle, component: source, code, format: 'SAS XPT', url: `${base}.XPT`, documentationUrl: `${base}.htm`, requiredJoinKey: 'SEQN' });
     }
   }
   for (const item of project.variables || []) {
     if (item.confirmationStatus !== 'codebook_and_cleaning_approved' || !/^[A-Z][A-Z0-9_]{1,40}$/.test(item.sourceFile || '')) continue;
     for (const cycle of item.cycles || []) {
-      const suffix = SUFFIXES[cycle];
-      if (!suffix || !cycles.includes(cycle) || !item.sourceFile.endsWith(`_${suffix}`)) continue;
+      if (!cycles.includes(cycle) || !fileMatchesCycle(item.sourceFile,cycle)) continue;
       const code = item.sourceFile, year = cycle.slice(0, 4), base = `https://${CDC_HOST}/Nchs/Data/Nhanes/Public/${year}/DataFiles/${code}`;
       files.push({ cycle, component: item.source, code, format: 'SAS XPT', url: `${base}.XPT`, documentationUrl: `${base}.htm`, requiredJoinKey: 'SEQN', mappingStatus: item.confirmationStatus });
     }
@@ -49,4 +51,4 @@ async function validateDataManifest(manifest, options = {}) {
   return { ...manifest, validatedAt: new Date().toISOString(), files: results, summary: { total: results.length, valid: results.filter(item => item.valid).length, invalid: results.filter(item => !item.valid).length, totalBytes: results.reduce((sum, item) => sum + item.totalBytes, 0) } };
 }
 
-module.exports = { CDC_HOST, SUFFIXES, buildDataManifest, validateFile, validateDataManifest };
+module.exports = { CDC_HOST, SUFFIXES, PREFIXES, fileCodeForCycle, fileMatchesCycle, buildDataManifest, validateFile, validateDataManifest };
