@@ -27,6 +27,7 @@ nav i{float:right;background:#36584b;padding:2px 6px;border-radius:8px;font-styl
 main>header{height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 35px;font-size:11px;position:sticky;top:0;background:#f5f5eff2;z-index:3}
 .online{color:#607068}
 .online:first-letter{color:#56a16e}
+.online.degraded{color:#8a6540}.online.degraded:first-letter{color:#c07c3e}
 .hero{min-height:calc(100vh - 64px);padding:9vh 7vw;background-image:radial-gradient(#d4d8d1 1px,transparent 1px);background-size:22px 22px}
 .kicker{font:10px monospace;letter-spacing:.14em;color:#39705b}
 .hero h1{font:600 clamp(44px,5vw,72px)/1 Georgia,serif;letter-spacing:-.04em;margin:22px 0 17px}

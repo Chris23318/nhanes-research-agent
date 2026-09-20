@@ -24,7 +24,10 @@ docker compose -f compose.production.yaml pull
 docker compose -f compose.production.yaml up -d
 docker compose -f compose.production.yaml ps
 curl -fsS https://你的域名/api/health
+curl -fsS https://你的域名/api/health/diagnostics
 ```
+
+诊断结果中的 `backups.state` 应在首次启动约 5 秒后变为 `protected`。默认每天创建一次 SQLite 在线备份，在 Docker 数据卷的 `/data/backups` 中保留 14 天、最多 30 份；每份数据库旁都有对应的 SHA-256 校验文件。
 
 ## 更新
 
@@ -65,4 +68,4 @@ docker compose -f compose.production.yaml logs --tail=200 app
 docker compose -f compose.production.yaml logs --tail=200 caddy
 ```
 
-当前版本只适合演示和内部测试。启用真实研究数据和 R 执行前，需要加入身份认证、PostgreSQL、对象存储、任务队列、备份、限流和独立 R Worker。
+正式公网使用前应配置域名、HTTPS 和管理员认证，并定期演练备份恢复。若后续扩展到多用户或高并发，再将 SQLite 与进程内任务执行迁移到独立数据库、对象存储和 Worker。

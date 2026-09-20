@@ -90,6 +90,11 @@ docker run -d \
   --env NODE_ENV=production \
   --env PORT=4173 \
   --env DATABASE_PATH=/data/nhanes.sqlite \
+  --env AUTO_BACKUP_ENABLED=true \
+  --env BACKUP_PATH=/data/backups \
+  --env BACKUP_INTERVAL_HOURS=24 \
+  --env BACKUP_RETENTION_DAYS=14 \
+  --env BACKUP_MAX_FILES=30 \
   --env DATA_CACHE_PATH=/data/xpt-cache \
   --env DATA_ROOT=/data \
   --publish 80:4173 \
