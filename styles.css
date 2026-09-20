@@ -10,19 +10,20 @@ body{margin:0;background:var(--paper);color:var(--ink);font-family:Arial,"Micros
 .auth-gate[hidden]{display:none}.auth-gate{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:22px;background:rgba(10,36,28,.72);backdrop-filter:blur(8px)}.auth-card{width:min(430px,100%);background:#fafbf8;border:1px solid #d8e1d8;padding:34px;box-shadow:0 28px 90px rgba(0,0,0,.34)}.auth-card h1{font:600 30px Georgia,"Microsoft YaHei",serif;margin:8px 0}.auth-card>p:not(.kicker){font-size:11px;color:var(--muted);line-height:1.7;margin-bottom:22px}.auth-card label{display:block;font-size:10px;color:#53645b;margin:12px 0}.auth-card input{display:block;width:100%;margin-top:6px;border:1px solid #cfd8cf;background:white;padding:12px;font:12px inherit}.auth-card>button{width:100%;padding:12px;margin-top:10px}.auth-card .warning{margin:12px 0}.profile button{display:block;border:0;background:transparent;color:#9ab3a8;padding:3px 0;font-size:8px;text-decoration:underline;cursor:pointer}
 .layout{display:grid;grid-template-columns:238px 1fr;min-height:100vh}
 aside{background:#102d24;color:#dce8e1;padding:25px 18px}
+.layout>aside{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}
 .brand{display:flex;align-items:center;gap:11px;font-size:16px}
 .brand>b{border:1px solid #779387;width:31px;height:31px;display:grid;place-items:center;font-family:Georgia;font-size:20px}
 .brand small{font:10px monospace;color:#9ab3a8}
 .new{margin:30px 0 20px;width:100%;background:#1c4537;color:white;border:1px solid #527466;padding:11px;text-align:left}
 .backup-control{width:100%;margin:-12px 0 18px;padding:8px;border:1px solid #527466;background:transparent;color:#bdd0c7;font:9px inherit;cursor:pointer}.backup-control:hover{background:#21483b;color:#fff}.backup-control[hidden],#backupStudy[hidden]{display:none}
-nav{display:flex;flex-direction:column;gap:5px}
+.layout>aside nav{display:flex;flex:1;min-height:0;flex-direction:column;gap:5px;overflow-y:auto;overflow-x:hidden;padding:0 3px 12px 0;scrollbar-width:thin;scrollbar-color:#527466 transparent}
 nav label{font:9px monospace;letter-spacing:.14em;color:#78958a;margin:17px 10px 6px}
 nav a{font-size:12px;padding:10px;border-radius:4px;color:#bdd0c7}
 nav a.active{background:#21483b;color:#fff}
 nav i{float:right;background:#36584b;padding:2px 6px;border-radius:8px;font-style:normal}
-.profile{position:absolute;bottom:25px;display:flex;align-items:center;gap:9px;font-size:11px}
+.profile{position:static;flex:0 0 auto;display:flex;align-items:center;gap:9px;min-width:0;margin-top:12px;padding-top:14px;border-top:1px solid #28483d;font-size:11px}
 .profile>span{background:#dae8b8;color:#28483a;border-radius:50%;width:32px;height:32px;display:grid;place-items:center}
-.profile small{display:block;color:#789489}
+.profile>div{min-width:0}.profile b,.profile small{display:block;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.profile small{color:#789489}
 main>header{height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 35px;font-size:11px;position:sticky;top:0;background:#f5f5eff2;z-index:3}
 .online{color:#607068}
 .online:first-letter{color:#56a16e}
