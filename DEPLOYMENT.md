@@ -29,6 +29,35 @@ curl -fsS https://你的域名/api/health/diagnostics
 
 诊断结果中的 `backups.state` 应在首次启动约 5 秒后变为 `protected`。默认每天创建一次 SQLite 在线备份，在 Docker 数据卷的 `/data/backups` 中保留 14 天、最多 30 份；每份数据库旁都有对应的 SHA-256 校验文件。
 
+### 可选：OSS 异地备份
+
+创建私有 OSS Bucket 和专用 RAM 用户，只授予备份前缀的上传权限。以 Bucket `YOUR_BUCKET` 和默认前缀为例：
+
+```json
+{
+  "Version": "1",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["oss:PutObject"],
+    "Resource": ["acs:oss:*:*:YOUR_BUCKET/nhanes-research-agent/backups/*"]
+  }]
+}
+```
+
+把下列变量写入服务器 `/etc/nhanes-agent/model.env`，不要提交到 Git：
+
+```bash
+OSS_BACKUP_ENABLED=true
+OSS_REGION=oss-cn-hangzhou
+OSS_BUCKET=YOUR_BUCKET
+OSS_BACKUP_PREFIX=nhanes-research-agent/backups
+OSS_INTERNAL=true
+OSS_ACCESS_KEY_ID=YOUR_DEDICATED_RAM_ACCESS_KEY_ID
+OSS_ACCESS_KEY_SECRET=YOUR_DEDICATED_RAM_ACCESS_KEY_SECRET
+```
+
+重启或等待下一次本地备份后，`/api/health/diagnostics` 中的 `offsiteBackups.state` 应变为 `synced`。建议在 OSS 控制台为该前缀配置生命周期规则和版本控制；应用本身不持有删除对象的权限。
+
 ## 更新
 
 ```bash

@@ -33,6 +33,7 @@ async function fileDigest(filename) {
 class BackupManager {
   constructor(store, options = {}) {
     this.store = store;
+    this.afterBackup = typeof options.afterBackup === 'function' ? options.afterBackup : null;
     this.databasePath = options.databasePath ?? store.filename ?? process.env.DATABASE_PATH ?? ':memory:';
     this.enabled = automaticEnabled(options);
     this.intervalMs = boundedNumber(options.intervalHours ?? process.env.BACKUP_INTERVAL_HOURS, 24, 1 / 60, 168) * 60 * 60 * 1000;
@@ -115,6 +116,7 @@ class BackupManager {
       this.lastBackupBytes = stat.size;
       try { this.rotate(now.getTime()); } catch (error) { console.error(JSON.stringify({ event: 'backup.rotation_failed', at: new Date().toISOString(), error: String(error.message || error).slice(0, 300) })); }
       console.log(JSON.stringify({ event: 'backup.completed', at: this.lastSuccessAt, bytes: stat.size, checksum }));
+      if (this.afterBackup) { try { await this.afterBackup({ destination, filename: name, checksum, bytes: stat.size, createdAt: this.lastSuccessAt }); } catch (error) { console.error(JSON.stringify({ event: 'backup.after_hook_failed', at: new Date().toISOString(), error: String(error.message || error).slice(0, 300) })); } }
       return this.status();
     } catch (error) {
       fs.rmSync(partial, { force: true });
@@ -145,7 +147,13 @@ class BackupManager {
     this.timer.unref();
   }
 
-  start() { this.schedule(); return this.status(); }
+  start({ forceInitial = false } = {}) {
+    if (forceInitial && this.enabled && this.supported) {
+      clearTimeout(this.timer); const delay = 5000; this.nextRunAt = new Date(Date.now() + delay).toISOString();
+      this.timer = setTimeout(async () => { try { await this.runNow({ force: true }); } catch {} finally { this.schedule(); } }, delay); this.timer.unref();
+    } else this.schedule();
+    return this.status();
+  }
   stop() { clearTimeout(this.timer); this.timer = null; this.nextRunAt = null; }
 }
 

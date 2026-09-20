@@ -10,7 +10,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4173
 
-COPY --chown=node:node package.json server.js app.js index.html styles.css ./
+COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY --chown=node:node server.js app.js index.html styles.css ./
 COPY --chown=node:node src ./src
 COPY --chown=node:node runner ./runner
 
