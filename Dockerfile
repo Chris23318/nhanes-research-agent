@@ -3,7 +3,7 @@ FROM node:24-bookworm-slim AS runtime
 ARG DEBIAN_MIRROR=deb.debian.org
 RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
     && apt-get update && apt-get install -y --no-install-recommends \
-    r-base-core r-cran-haven r-cran-survey r-cran-jsonlite r-cran-dplyr r-cran-purrr r-cran-tibble \
+    r-base-core r-cran-haven r-cran-survey r-cran-jsonlite r-cran-dplyr r-cran-purrr r-cran-tibble fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

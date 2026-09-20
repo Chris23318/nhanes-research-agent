@@ -8,7 +8,7 @@
 npm run dev
 ```
 
-打开 `http://localhost:4173`。当前版本是无外部依赖的交互式 MVP，内置演示项目和可调用的研究工作流 API。
+打开 `http://localhost:4173`。当前版本是可部署的交互式 MVP，内置演示项目和可调用的研究工作流 API；使用 `npm ci` 安装锁定的运行依赖。
 
 ## 已实现
 
@@ -39,6 +39,7 @@ npm run dev
 - 先定义完整复杂抽样设计，再以 `survey::subset` 进入目标人群和完整案例分析域，保留正确的子总体方差结构
 - 逐变量缺失率、完整案例保留率、模型收敛/秩/条件数诊断
 - 权重分布、设计自由度、分层/PSU 诊断，结构化报告和结果归档
+- 质量门通过后可直接导出嵌入中文字体的 PDF、正式 Word `.docx`、汇总结果表 CSV 和论文 Methods/Results 草稿；完整结果包同时包含这些文件及 SHA-256 清单
 - 研究方案导出与响应式布局
 - 研究项目创建、运行、查询和确认 API
 - SSE 实时 Agent 事件流
@@ -81,6 +82,10 @@ POST /api/projects/:id/analysis-run
 GET  /api/projects/:id/analysis-quality
 GET  /api/projects/:id/analysis-result-download
 GET  /api/projects/:id/analysis-report
+GET  /api/projects/:id/analysis-report-pdf
+GET  /api/projects/:id/analysis-report-docx
+GET  /api/projects/:id/analysis-tables-download
+GET  /api/projects/:id/analysis-manuscript-download
 GET  /api/catalog/variables?q=vitamin
 GET  /api/catalog/cdc?component=Laboratory&cycle=2017-2018&q=vitamin
 POST /api/tools/pubmed/search
@@ -90,6 +95,8 @@ POST /api/tools/parse-question
 已核验的维生素 D 演示方案使用内置注册表；其他研究问题从 CDC/NCHS 官方目录发现候选，正式分析前必须逐周期复核代码本并确认清洗规则。PubMed 工具通过 NCBI E-utilities 实时检索；建议配置 `NCBI_EMAIL`，高频使用时配置 `NCBI_API_KEY`。
 
 分析包接口生成数据准备脚本、`model.R`、冻结配置和机器可读 QC 规则。只有变量、清洗、模型和研究方案摘要完全匹配时，通用执行器才会运行；任何失败都会保留为失败状态，不会把代码生成冒充成分析结果。
+
+PDF 导出需要完整中文字体。官方容器已安装文泉驿正黑；在其他 Linux 环境运行时可安装同名字体包，或通过 `REPORT_FONT_PATH` 和可选的 `REPORT_FONT_FAMILY` 指定 TTF/TTC 字体。Word 导出使用标准 Office Open XML，可直接由 Microsoft Word、LibreOffice 或 WPS 打开。
 
 生产环境设置 `DATABASE_PATH=/data/nhanes.sqlite` 后，项目、审计事件和执行任务持久化到 SQLite。Compose 配置已挂载独立数据卷，容器更新不会删除项目数据；重启时未完成任务会从安全检查点重新排队。
 

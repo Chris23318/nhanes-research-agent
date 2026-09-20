@@ -102,3 +102,4 @@ main>header{height:64px;border-bottom:1px solid var(--line);display:flex;align-i
 .design{grid-template-columns:1fr}
 .card.wide{grid-column:auto}
 }
+.report-downloads{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.report-downloads a{display:inline-flex;align-items:center;min-height:34px;padding:0 12px;border:1px solid #cbd7cf;border-radius:6px;background:#fff;text-decoration:none}.report-downloads a:hover{border-color:#174f3b;background:#f1f7f3}.report-downloads a.primary{color:#fff;background:#174f3b;border-color:#174f3b}

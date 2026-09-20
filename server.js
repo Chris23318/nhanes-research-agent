@@ -6,7 +6,7 @@ const {generateRProject}=require('./src/analysis-package');
 const {createAnalysisArchive}=require('./src/archive');
 const {buildDataManifest,validateDataManifest}=require('./src/data-manifest');
 const {startDataCache,getDataCache,cancelDataCache}=require('./src/data-cache');
-const {startAnalysis,getAnalysis,cancelAnalysis,getAnalysisArchive,getAnalysisReport,getAnalysisQuality}=require('./src/analysis-runner');
+const {startAnalysis,getAnalysis,cancelAnalysis,getAnalysisArchive,getAnalysisReport,getAnalysisExport,getAnalysisQuality}=require('./src/analysis-runner');
 const {startFullExecution,getFullExecution,cancelFullExecution}=require('./src/full-execution');
 const {fetchOfficialCatalog}=require('./src/cdc-catalog');
 const {parseQuestion}=require('./src/question-parser');
@@ -22,12 +22,12 @@ const auth=createAuth();
 const offsiteBackupManager=new OssBackupManager();
 const backupManager=new BackupManager(defaultStore,{afterBackup:snapshot=>offsiteBackupManager.upload(snapshot)});
 let shuttingDown=false;
-function enforceRate(req,url){const key=req.socket.remoteAddress||'unknown',normal=limiter.check(key,'all',300,60000);if(!normal.allowed)return normal;if(req.method==='POST'&&heavy.test(url.pathname))return limiter.check(key,'heavy',20,600000);return normal}
+function enforceRate(req,url){const key=req.socket.remoteAddress||'unknown',normal=limiter.check(key,'all',300,60000);if(!normal.allowed)return normal;const expensive=req.method==='POST'&&heavy.test(url.pathname)||req.method==='GET'&&/\/analysis-(?:report-(?:pdf|docx)|result-download)$/.test(url.pathname);if(expensive)return limiter.check(key,'heavy',20,600000);return normal}
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
 function publicBackupStatus(value){const safe={...value,lastError:value.lastError?'see_server_logs':null};delete safe.lastChecksum;delete safe.lastRequestId;return safe}
 async function body(req,maxBytes=65536){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>maxBytes){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
 async function api(req,res,url){
-  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.22.0',mode:'agent-orchestrated-mvp',authEnabled:auth.enabled,shuttingDown});
+  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.23.0',mode:'agent-orchestrated-mvp',authEnabled:auth.enabled,shuttingDown});
   if(req.method==='GET'&&url.pathname==='/api/health/ready'){const database=require('./src/store').defaultStore.health(),ready=database.ok&&!shuttingDown;return json(res,ready?200:503,{status:ready?'ready':'not_ready',database,shuttingDown})}
   if(req.method==='GET'&&url.pathname==='/api/health/diagnostics'){const backupState=backupManager.status(),offsiteState=offsiteBackupManager.status(),database=defaultStore.health(),runtime={uptimeSeconds:Math.floor(process.uptime()),memoryMegabytes:Math.round(process.memoryUsage().rss/1024/1024),node:process.version},status=database.ok&&backupState.ok&&offsiteState.ok&&!shuttingDown?'healthy':'degraded';return json(res,status==='healthy'?200:503,{status,database,backups:publicBackupStatus(backupState),offsiteBackups:publicBackupStatus(offsiteState),workload:defaultStore.stats(),runtime,shuttingDown})}
   if(req.method==='GET'&&url.pathname==='/api/auth/session')return json(res,200,auth.session(req));
@@ -57,7 +57,7 @@ async function api(req,res,url){
   if(req.method==='POST'&&url.pathname==='/api/tools/parse-question'){const input=await body(req);return json(res,200,parseQuestion(input.question||''))}
   if(req.method==='POST'&&url.pathname==='/api/projects')return json(res,201,createProject(await body(req)));
   if(req.method==='GET'&&url.pathname==='/api/projects')return json(res,200,{items:listProjects(url.searchParams.get('limit'))});
-  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|fork|backup|execute|approve|events|audit|analysis-package|analysis-package-download|analysis-run|analysis-quality|analysis-report|analysis-result-download|data-manifest|data-manifest-validate|data-cache|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
+  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|fork|backup|execute|approve|events|audit|analysis-package|analysis-package-download|analysis-run|analysis-quality|analysis-report|analysis-report-pdf|analysis-report-docx|analysis-tables-download|analysis-manuscript-download|analysis-result-download|data-manifest|data-manifest-validate|data-cache|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
   const [,projectId,action]=match;
   if(req.method==='GET'&&!action)return json(res,200,getProject(projectId));
   if(req.method==='POST'&&action==='fork')return json(res,201,forkProject(projectId,await body(req)))
@@ -85,7 +85,8 @@ async function api(req,res,url){
   if(req.method==='DELETE'&&action==='analysis-run')return json(res,200,cancelAnalysis(projectId));
   if(req.method==='GET'&&action==='analysis-quality')return json(res,200,getAnalysisQuality(projectId));
   if(req.method==='GET'&&action==='analysis-report'){const report=getAnalysisReport(getProject(projectId));res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; img-src data:"});return res.end(report)}
-  if(req.method==='GET'&&action==='analysis-result-download'){const archive=getAnalysisArchive(getProject(projectId));res.writeHead(200,{'Content-Type':'application/gzip','Content-Disposition':`attachment; filename="nhanes-results-${projectId}.tar.gz"`,'Content-Length':archive.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(archive)}
+  if(req.method==='GET'&&['analysis-report-pdf','analysis-report-docx','analysis-tables-download','analysis-manuscript-download'].includes(action)){const format={'analysis-report-pdf':'pdf','analysis-report-docx':'docx','analysis-tables-download':'tables','analysis-manuscript-download':'manuscript'}[action],artifact=await getAnalysisExport(getProject(projectId),format),content=artifact.content;res.writeHead(200,{'Content-Type':artifact.contentType,'Content-Disposition':`attachment; filename="nhanes-${format}-${projectId}.${artifact.extension}"`,'Content-Length':content.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(content)}
+  if(req.method==='GET'&&action==='analysis-result-download'){const archive=await getAnalysisArchive(getProject(projectId));res.writeHead(200,{'Content-Type':'application/gzip','Content-Disposition':`attachment; filename="nhanes-results-${projectId}.tar.gz"`,'Content-Length':archive.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(archive)}
   if(req.method==='GET'&&action==='events'){const project=getProject(projectId);res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache',Connection:'keep-alive'});for(const event of project.events)res.write(`data: ${JSON.stringify(event)}\n\n`);const off=subscribe(projectId,event=>res.write(`data: ${JSON.stringify(event)}\n\n`));req.on('close',off);return}
   return json(res,405,{error:{code:'METHOD_NOT_ALLOWED',message:'method not allowed'}})
 }
