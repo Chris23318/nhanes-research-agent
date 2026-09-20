@@ -12,15 +12,17 @@ const {fetchOfficialCatalog}=require('./src/cdc-catalog');
 const {parseQuestion}=require('./src/question-parser');
 const {SECURITY_HEADERS,createRateLimiter}=require('./src/http-security');
 const {createAuth}=require('./src/auth');
+const {defaultStore}=require('./src/store');
+const {exportProjectBackup,importProjectBackup}=require('./src/project-backup');
 const root=__dirname,types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.md':'text/markdown; charset=utf-8'};
-const limiter=createRateLimiter(),heavy=/\/(?:run|execute|codebook-review|data-manifest-validate|data-cache|analysis-run)$|\/api\/tools\/(?:pubmed\/search|parse-question)$/;
+const limiter=createRateLimiter(),heavy=/\/(?:run|execute|codebook-review|data-manifest-validate|data-cache|analysis-run)$|^\/api\/projects\/import$|\/api\/tools\/(?:pubmed\/search|parse-question)$/;
 const auth=createAuth();
 let shuttingDown=false;
 function enforceRate(req,url){const key=req.socket.remoteAddress||'unknown',normal=limiter.check(key,'all',300,60000);if(!normal.allowed)return normal;if(req.method==='POST'&&heavy.test(url.pathname))return limiter.check(key,'heavy',20,600000);return normal}
 function json(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value))}
-async function body(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
+async function body(req,maxBytes=65536){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>maxBytes){const e=new Error('request body too large');e.status=413;throw e}chunks.push(chunk)}if(!chunks.length)return{};try{return JSON.parse(Buffer.concat(chunks).toString('utf8'))}catch{const e=new Error('invalid JSON');e.status=400;throw e}}
 async function api(req,res,url){
-  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.19.0',mode:'agent-orchestrated-mvp',authEnabled:auth.enabled,shuttingDown});
+  if(req.method==='GET'&&url.pathname==='/api/health')return json(res,200,{status:'ok',service:'nhanes-research-agent',version:'2.20.0',mode:'agent-orchestrated-mvp',authEnabled:auth.enabled,shuttingDown});
   if(req.method==='GET'&&url.pathname==='/api/health/ready'){const database=require('./src/store').defaultStore.health(),ready=database.ok&&!shuttingDown;return json(res,ready?200:503,{status:ready?'ready':'not_ready',database,shuttingDown})}
   if(req.method==='GET'&&url.pathname==='/api/auth/session')return json(res,200,auth.session(req));
   if(req.method==='POST'&&url.pathname==='/api/auth/login'){const rate=limiter.check(req.socket.remoteAddress||'unknown','login',10,15*60*1000);if(!rate.allowed)return json(res,429,{error:{code:'RATE_LIMITED',message:'登录尝试过多，请稍后重试'}});const input=await body(req);if(!auth.enabled||String(input.username||'')!==auth.username||!auth.verifyPassword(input.password)){return json(res,401,{error:{code:'INVALID_CREDENTIALS',message:'用户名或密码错误'}})}const token=auth.issue();res.setHeader('Set-Cookie',auth.cookie(token));return json(res,200,auth.session({headers:{cookie:`nhanes_session=${token}`}}))}
@@ -28,6 +30,10 @@ async function api(req,res,url){
   if(auth.enabled&&!identity)return json(res,401,{error:{code:'AUTH_REQUIRED',message:'请先登录'}});
   if(auth.enabled&&!['GET','HEAD','OPTIONS'].includes(req.method)&&url.pathname!=='/api/auth/logout'&&!auth.validCsrf(req,identity))return json(res,403,{error:{code:'CSRF_REJECTED',message:'安全令牌无效，请刷新页面后重试'}});
   if(req.method==='POST'&&url.pathname==='/api/auth/logout'){if(auth.enabled&&!auth.validCsrf(req,identity))return json(res,403,{error:{code:'CSRF_REJECTED',message:'安全令牌无效'}});res.setHeader('Set-Cookie',auth.expiredCookie());return json(res,200,{authenticated:false})}
+  if(url.pathname==='/api/projects/import'){
+    if(!auth.enabled)return json(res,403,{error:{code:'AUTH_REQUIRED_FOR_BACKUP',message:'项目备份导入仅在 HTTPS 管理员登录启用后开放'}});
+    if(req.method==='POST')return json(res,201,importProjectBackup(await body(req,5*1024*1024),defaultStore));
+  }
   const weightAdviceRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/weight-advice$/);
   if(req.method==='POST'&&weightAdviceRoute)return json(res,200,require('./src/orchestrator').getWeightAdvice(weightAdviceRoute[1],await body(req)));
   const modelSpecRoute=url.pathname.match(/^\/api\/projects\/([^/]+)\/model-spec$/);
@@ -45,10 +51,15 @@ async function api(req,res,url){
   if(req.method==='POST'&&url.pathname==='/api/tools/parse-question'){const input=await body(req);return json(res,200,parseQuestion(input.question||''))}
   if(req.method==='POST'&&url.pathname==='/api/projects')return json(res,201,createProject(await body(req)));
   if(req.method==='GET'&&url.pathname==='/api/projects')return json(res,200,{items:listProjects(url.searchParams.get('limit'))});
-  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|fork|execute|approve|events|audit|analysis-package|analysis-package-download|analysis-run|analysis-quality|analysis-report|analysis-result-download|data-manifest|data-manifest-validate|data-cache|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
+  const match=url.pathname.match(/^\/api\/projects\/([^/]+)(?:\/(run|fork|backup|execute|approve|events|audit|analysis-package|analysis-package-download|analysis-run|analysis-quality|analysis-report|analysis-result-download|data-manifest|data-manifest-validate|data-cache|evidence))?$/);if(!match)return json(res,404,{error:{code:'NOT_FOUND',message:'route not found'}});
   const [,projectId,action]=match;
   if(req.method==='GET'&&!action)return json(res,200,getProject(projectId));
   if(req.method==='POST'&&action==='fork')return json(res,201,forkProject(projectId,await body(req)))
+  if(req.method==='GET'&&action==='backup'){
+    if(!auth.enabled)return json(res,403,{error:{code:'AUTH_REQUIRED_FOR_BACKUP',message:'项目备份下载仅在 HTTPS 管理员登录启用后开放'}});
+    const backup=exportProjectBackup(projectId,defaultStore),content=Buffer.from(JSON.stringify(backup,null,2));
+    res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="nhanes-backup-${projectId}.json"`,'Content-Length':content.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(content)
+  }
   if(req.method==='GET'&&action==='audit'){getProject(projectId);const events=require('./src/store').defaultStore.auditTrail(projectId);return json(res,200,{projectId,chainVerified:events.filter(item=>item.verified!==null).every(item=>item.verified),events})}
   if(req.method==='POST'&&action==='run'){runProject(projectId).catch(console.error);return json(res,202,{projectId,status:'running'})}
   if(req.method==='POST'&&action==='execute')return json(res,202,startFullExecution(getProject(projectId)))

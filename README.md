@@ -16,6 +16,7 @@ npm run dev
 - 六阶段 Agent 工作流与可见运行记录
 - 初始问题解析、变量发现、PubMed 检索和方案生成支持并发去重；服务器重启后自动恢复停留在 running 的 Agent 项目
 - 研究方案支持创建可追溯修订版：保留来源证据和模型配置、清空原批准签名，并在父子项目审计链中交叉记录
+- 完整项目备份与恢复：导出项目、审批、证据、任务记录和已验证审计链；导入时校验 SHA-256 摘要、防篡改并恢复为新项目。该能力仅在 HTTPS 管理员登录启用后开放
 - 生产容器提供 SQLite 就绪探针和 25 秒优雅停机窗口；更新期间拒绝新任务，未完成任务由持久化队列恢复
 - 所有耗时研究 API 提供分阶段过场动画、实时进度、已等待时间和可最小化后台状态；刷新页面后可恢复完整分析任务进度
 - 完整分析、数据缓存和 R 进程支持安全取消；进度轮询遇到临时网络故障会自动退避重试
@@ -48,8 +49,10 @@ npm run dev
 GET  /api/health
 GET  /api/health/ready
 POST /api/projects
+POST /api/projects/import
 GET  /api/projects/:id
 GET  /api/projects/:id/audit
+GET  /api/projects/:id/backup
 POST /api/projects/:id/run
 POST /api/projects/:id/fork
 GET  /api/projects/:id/execute
@@ -85,6 +88,8 @@ POST /api/tools/parse-question
 分析包接口生成数据准备脚本、`model.R`、冻结配置和机器可读 QC 规则。只有变量、清洗、模型和研究方案摘要完全匹配时，通用执行器才会运行；任何失败都会保留为失败状态，不会把代码生成冒充成分析结果。
 
 生产环境设置 `DATABASE_PATH=/data/nhanes.sqlite` 后，项目、审计事件和执行任务持久化到 SQLite。Compose 配置已挂载独立数据卷，容器更新不会删除项目数据；重启时未完成任务会从安全检查点重新排队。
+
+完整备份接口不会在匿名 HTTP 模式下开放。启用 HTTPS 和管理员登录后，可在页面下载 `.json` 备份并重新导入；导入不会覆盖原项目，运行中的历史任务会安全标为已取消，机器本地的数据缓存路径会被重置，避免误用不存在或来自其他服务器的文件。
 
 ### 启用安全登录
 

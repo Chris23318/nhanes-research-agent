@@ -32,6 +32,17 @@ test('API authentication protects projects and requires CSRF for mutations', asy
   assert.equal(response.status, 403);
   response = await fetch(`${base}/api/projects`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken }, body: JSON.stringify({ question: 'Study vitamin D and depression in NHANES adults' }) });
   assert.equal(response.status, 201);
+  const project = await response.json();
+  response = await fetch(`${base}/api/projects/${project.id}/backup`, { headers: { cookie } });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-disposition'), /nhanes-backup-/);
+  const backup = await response.json();
+  assert.equal(backup.project.id, project.id);
+  response = await fetch(`${base}/api/projects/import`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken }, body: JSON.stringify(backup) });
+  assert.equal(response.status, 201);
+  const restored = await response.json();
+  assert.notEqual(restored.id, project.id);
+  assert.equal(restored.backupProvenance.sourceProjectId, project.id);
   response = await fetch(`${base}/api/auth/logout`, { method: 'POST', headers: { cookie, 'x-csrf-token': session.csrfToken } });
   assert.equal(response.status, 200);
   assert.match(response.headers.get('set-cookie'), /Max-Age=0/);
