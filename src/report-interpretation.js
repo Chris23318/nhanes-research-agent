@@ -3,7 +3,7 @@ function number(value, digits = 3) { return finite(value) ? Number(value).toFixe
 function pvalue(value) { return !finite(value) ? '未记录' : Number(value) < 0.001 ? '<0.001' : number(value, 3); }
 function pExpression(value) { return !finite(value) ? 'P 未记录' : Number(value) < 0.001 ? 'P<0.001' : `P=${number(value, 3)}`; }
 function effect(row) { return row?.effect ?? row?.odds_ratio ?? row?.estimate; }
-function ratioScale(row) { return ['odds_ratio', 'rate_ratio', 'risk_ratio'].includes(row?.effect_type); }
+function ratioScale(row) { return ['odds_ratio', 'rate_ratio', 'risk_ratio'].includes(row?.effect_type) || (row?.model === 'primary' && row?.term === 'I(LBXVIDMS/10)'); }
 function nullValue(row) { return ratioScale(row) ? 1 : 0; }
 function excludesNull(row) { return finite(row?.ci_low) && finite(row?.ci_high) && (Number(row.ci_high) < nullValue(row) || Number(row.ci_low) > nullValue(row)); }
 function significant(row) { return finite(row?.p_value) && Number(row.p_value) < 0.05 && excludesNull(row); }
@@ -26,7 +26,7 @@ function unitLabel(project) {
 }
 
 function effectLabel(row) {
-  if (row?.effect_type === 'odds_ratio') return 'OR';
+  if (row?.effect_type === 'odds_ratio' || (row?.model === 'primary' && row?.term === 'I(LBXVIDMS/10)')) return 'OR';
   if (row?.effect_type === 'rate_ratio') return 'RR';
   if (row?.effect_type === 'risk_ratio') return 'RR';
   return 'β';
@@ -37,16 +37,17 @@ function mainInterpretation(project, result) {
   if (!row || !finite(effect(row)) || !finite(row.ci_low) || !finite(row.ci_high)) return '主要效应估计不完整，不能进行统计或流行病学解释。';
   const estimate = Number(effect(row));
   const exp = exposureLabel(project), out = outcomeLabel(project), scale = effectLabel(row);
+  const unit = row.model === 'primary' && row.term === 'I(LBXVIDMS/10)' ? '每升高 10 nmol/L' : unitLabel(project);
   let direction;
   if (ratioScale(row)) {
     const percentage = Math.abs((estimate - 1) * 100).toFixed(1);
-    const noun = row.effect_type === 'odds_ratio' ? '优势（odds）' : '发生率';
+    const noun = row.effect_type === 'odds_ratio' || (row.model === 'primary' && row.term === 'I(LBXVIDMS/10)') ? '优势（odds）' : '发生率';
     direction = estimate >= 1 ? `${out}的${noun}估计升高 ${percentage}%` : `${out}的${noun}估计降低 ${percentage}%`;
   } else direction = `${out}的加权均值估计${estimate >= 0 ? '升高' : '降低'} ${Math.abs(estimate).toFixed(3)} 个结局单位`;
   const evidence = significant(row)
     ? `95% 置信区间未跨越无效值，数据提供了统计学关联证据（${pExpression(row.p_value)}）。`
     : `95% 置信区间包含无效值或 P≥0.05，当前数据不足以确认存在统计学关联；这不等同于证明“没有关联”（${pExpression(row.p_value)}）。`;
-  return `在复杂抽样加权并调整预设协变量后，${exp}${unitLabel(project)}与${direction}相关（${scale}=${number(estimate)}，95% CI ${number(row.ci_low)}–${number(row.ci_high)}）。${evidence}`;
+  return `在复杂抽样加权并调整预设协变量后，${exp}${unit}与${direction}相关（${scale}=${number(estimate)}，95% CI ${number(row.ci_low)}–${number(row.ci_high)}）。${evidence}`;
 }
 
 function sensitivityInterpretation(result) {

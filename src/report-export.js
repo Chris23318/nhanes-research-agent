@@ -160,10 +160,9 @@ function docxFigure(svg, caption) {
 }
 
 function reportFigures(result) {
-  const figures = new Map([
-    ['样本纳入流程', docxFigure(flowSvg(result), '图 1 研究对象筛选与最终分析样本')],
-    ['主要模型结果', docxFigure(forestSvg(result), '图 2 主暴露效应与 95% 置信区间')],
-  ]);
+  const flow = docxFigure(flowSvg(result), '图 1 研究对象筛选与最终分析样本');
+  const main = docxFigure(forestSvg(result), '图 2 主暴露效应与 95% 置信区间');
+  const figures = new Map([['样本纳入流程', flow], ['样本流程', flow], ['主要模型结果', main], ['主要结果', main]]);
   const subgroup = subgroupForestSvg(result);
   const missing = missingnessSvg(result);
   if (subgroup) figures.set('高级分析', docxFigure(subgroup, '图 3 亚组效应与 95% 置信区间'));
@@ -290,7 +289,7 @@ function drawPdfForest(doc, result) {
     : (result.coefficients || []).find(item => item.term === 'I(LBXVIDMS/10)');
   if (!row || ![effect(row), row.ci_low, row.ci_high].every(value => Number.isFinite(Number(value)))) return;
   ensurePdfSpace(doc, 104);
-  const ratio = ['odds_ratio', 'rate_ratio', 'risk_ratio'].includes(row.effect_type);
+  const ratio = !isGeneric(result) || ['odds_ratio', 'rate_ratio', 'risk_ratio'].includes(row.effect_type);
   const nullValue = ratio ? 1 : 0, estimate = Number(effect(row)), low = Number(row.ci_low), high = Number(row.ci_high);
   const padding = Math.max((high - low) * 0.22, 0.1), minimum = Math.min(low, nullValue) - padding, maximum = Math.max(high, nullValue) + padding;
   const left = 110, right = doc.page.width - 78, y = doc.y + 34, x = value => left + (Number(value) - minimum) / (maximum - minimum) * (right - left);
@@ -356,9 +355,11 @@ function createPdfReport(project, result) {
       if (line.startsWith('# ')) { doc.fillColor('#174f3b').fontSize(20); pdfText(doc, line.slice(2), { align: 'center', paragraphGap: 12 }); }
       else if (line.startsWith('## ')) {
         const heading = cleanMarkdown(line.slice(3));
+        if (heading === '样本纳入流程' || heading === '样本流程') ensurePdfSpace(doc, 250);
+        else if (heading === '主要模型结果' || heading === '主要结果') ensurePdfSpace(doc, 145);
         doc.fillColor('#174f3b').fontSize(15); pdfText(doc, heading, { paragraphGap: 7 });
-        if (heading === '样本纳入流程') drawPdfFlow(doc, result);
-        else if (heading === '主要模型结果') drawPdfForest(doc, result);
+        if (heading === '样本纳入流程' || heading === '样本流程') drawPdfFlow(doc, result);
+        else if (heading === '主要模型结果' || heading === '主要结果') drawPdfForest(doc, result);
         else if (heading === '高级分析') drawPdfSubgroups(doc, result);
         else if (heading === '缺失数据') drawPdfMissingness(doc, result);
       }
