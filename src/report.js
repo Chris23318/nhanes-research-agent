@@ -4,7 +4,7 @@ const number = (value, digits = 3) => Number(value).toFixed(digits);
 const pvalue = value => Number(value) < 0.001 ? '&lt;0.001' : number(value, 3);
 function exposureRow(result) { return (result.coefficients || []).find(item => item.term === 'I(LBXVIDMS/10)'); }
 function sensitivityRows(result) { return (result.sensitivityCoefficients || []).filter(item => (item.model === 'vitamin_d_quartiles' && String(item.term).includes('vitamin_quartile')) || (item.model === 'continuous_phq9' && item.term === 'I(LBXVIDMS/10)') || (item.model === 'sex_interaction' && String(item.term).includes(':'))); }
-function effect(item) { return item.effect ?? item.odds_ratio; }
+function effect(item) { return item?.effect ?? item?.odds_ratio; }
 const isGeneric = result => String(result?.analysisMode || '').startsWith('generic_survey_v');
 function flowSvg(result) { const flow = result.flow || {}, items = isGeneric(result)?[['合并后记录',flow.merged],['符合目标年龄',flow.population_eligible],['最终完整案例',flow.analytic_complete_case]]:[['合并后记录', flow.merged], ['20岁以上', flow.adults], ['完整PHQ-9', flow.complete_phq9], ['最终分析样本', flow.analytic_complete_case]]; const height=34+items.length*94;return `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="${height}" viewBox="0 0 760 ${height}" role="img" aria-label="样本纳入流程图"><rect width="760" height="${height}" fill="#f5f5ef"/>${items.map((item,index)=>{const y=18+index*94;return `<rect x="180" y="${y}" width="400" height="62" rx="5" fill="#fff" stroke="#174f3b"/><text x="380" y="${y+25}" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#17211d">${esc(item[0])}</text><text x="380" y="${y+48}" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="bold" fill="#174f3b">n = ${esc(item[1])}</text>${index<items.length-1?`<path d="M380 ${y+62} V${y+91}" stroke="#174f3b"/><path d="M374 ${y+84} L380 ${y+91} L386 ${y+84}" fill="none" stroke="#174f3b"/>`:''}`}).join('')}</svg>`; }
 function forestSvg(result) { if(isGeneric(result)){const item=(result.coefficients||[]).find(row=>row.term==='analysis_exposure');if(!item)return '<svg xmlns="http://www.w3.org/2000/svg" width="760" height="80"><text x="20" y="40">No exposure estimate</text></svg>';const low=Number(item.ci_low),high=Number(item.ci_high),span=Math.max(high-low,Math.abs(Number(effect(item)))*.2,.1),min=low-span*.2,max=high+span*.2,x=value=>220+(Number(value)-min)/(max-min)*430;return `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="130" viewBox="0 0 760 130" role="img" aria-label="主暴露效应图"><rect width="100%" height="100%" fill="#fff"/><text x="20" y="28" font-family="sans-serif" font-size="16" font-weight="bold">主暴露效应及95%置信区间</text><text x="20" y="72" font-family="sans-serif" font-size="13">analysis_exposure</text><line x1="${x(low)}" y1="68" x2="${x(high)}" y2="68" stroke="#174f3b" stroke-width="3"/><circle cx="${x(effect(item))}" cy="68" r="5" fill="#174f3b"/><text x="735" y="72" text-anchor="end" font-family="monospace" font-size="12">${number(effect(item))} (${number(low)}–${number(high)})</text></svg>`} const primary = exposureRow(result), rows = [primary, ...sensitivityRows(result).filter(item => item.effect_type === 'odds_ratio')].filter(Boolean), labels = rows.map(item => item.model === 'primary' ? '连续维生素D（每10 nmol/L）' : item.term.replace('factor(vitamin_quartile)', '').replace('I(LBXVIDMS/10):factor(RIAGENDR)2', '性别交互')); const min=.65,max=1.25,x=value=>260+(Math.max(min,Math.min(max,Number(value)))-min)/(max-min)*430; return `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="${100+rows.length*58}" viewBox="0 0 760 ${100+rows.length*58}" role="img" aria-label="比值比森林图"><rect width="100%" height="100%" fill="#fff"/><text x="20" y="28" font-family="sans-serif" font-size="16" font-weight="bold">调整后比值比及95%置信区间</text><line x1="${x(1)}" y1="48" x2="${x(1)}" y2="${70+rows.length*58}" stroke="#9aa49e" stroke-dasharray="4 4"/>${rows.map((item,index)=>{const y=68+index*58;return `<text x="20" y="${y+5}" font-family="sans-serif" font-size="12">${esc(labels[index])}</text><line x1="${x(item.ci_low)}" y1="${y}" x2="${x(item.ci_high)}" y2="${y}" stroke="#174f3b" stroke-width="3"/><circle cx="${x(effect(item))}" cy="${y}" r="5" fill="#174f3b"/><text x="705" y="${y+5}" text-anchor="end" font-family="monospace" font-size="11">${number(effect(item))} (${number(item.ci_low)}–${number(item.ci_high)})</text>`}).join('')}<line x1="260" y1="${76+rows.length*58}" x2="690" y2="${76+rows.length*58}" stroke="#17211d"/><text x="260" y="${94+rows.length*58}" font-family="monospace" font-size="10">${min}</text><text x="${x(1)}" y="${94+rows.length*58}" text-anchor="middle" font-family="monospace" font-size="10">1.00</text><text x="690" y="${94+rows.length*58}" text-anchor="end" font-family="monospace" font-size="10">${max}</text></svg>`; }
@@ -205,4 +205,86 @@ function legacyPublicationHtmlReport(project, result) {
 }
 function addImputationHtml(html,result){if(!result.imputationDiagnostics?.requested)return html;const interpretation=buildInterpretation({},result);const block=`<h2>多重插补敏感性分析</h2><p class="interpretation">${esc(interpretation.imputation)}</p>`;return html.replace('<h2>流行病学结论</h2>',`${block}<h2>流行病学结论</h2>`)}
 function htmlReport(project, result) { return isGeneric(result)?addImputationHtml(publicationHtmlReport(project,result),result):legacyPublicationHtmlReport(project,result); }
-module.exports = { exposureRow, sensitivityRows, flowSvg, forestSvg, missingnessSvg, subgroupForestSvg, markdownReport, htmlReport };
+
+function finiteValue(value){return value!==null&&value!==''&&Number.isFinite(Number(value))}
+function primaryEstimate(result){return isGeneric(result)?(result.coefficients||[]).find(item=>item.term==='analysis_exposure'):exposureRow(result)}
+function ratioEstimate(row,result){return !isGeneric(result)||['odds_ratio','rate_ratio','risk_ratio'].includes(row?.effect_type)}
+function evidenceSupported(row,result){if(!row||![effect(row),row.ci_low,row.ci_high,row.p_value].every(finiteValue))return false;const nullValue=ratioEstimate(row,result)?1:0;return Number(row.p_value)<.05&&(Number(row.ci_high)<nullValue||Number(row.ci_low)>nullValue)}
+function displayValue(value,digits=3){return finiteValue(value)?Number(value).toFixed(digits):'未记录'}
+function displayP(value){return !finiteValue(value)?'未记录':Number(value)<.001?'<0.001':Number(value).toFixed(3)}
+function reportLabels(project,result){const spec=project.modelSpec||{},legacy=!isGeneric(result);return {exposure:project.intent?.exposure?.label||project.intent?.exposure?.concept||(legacy?'血清总 25(OH)D':(spec.exposureMappings||[]).map(item=>item.variable).filter(Boolean).join('/')||'主要暴露'),outcome:project.intent?.outcome?.label||project.intent?.outcome?.concept||(legacy?'抑郁症状筛查阳性':(spec.outcomeMappings||[]).map(item=>item.variable).filter(Boolean).join('/')||'研究结局'),population:`美国 ${project.intent?.population?.ageMin||20} 岁以上目标人群`,cycles:(project.intent?.cycles||[]).join('、')||'未记录'} }
+function methodRows(project,result){const spec=project.modelSpec||{},labels=reportLabels(project,result),legacy=!isGeneric(result),imputation=spec.missingDataPolicy?.strategy==='multiple_imputation';return [
+  ['数据来源',`NHANES ${labels.cycles}`,'全国代表性复杂抽样调查；分析必须使用权重、分层和 PSU'],
+  ['研究对象',labels.population,'报告中的估计面向符合纳入条件的美国非机构化人群'],
+  ['暴露',legacy?'LBXVIDMS；每 10 nmol/L':`${labels.exposure}；${spec.exposureTransform||'原值'}`,'效应值对应这里冻结的暴露单位，改变单位会改变系数大小'],
+  ['结局',legacy?'PHQ-9≥10；连续得分为敏感性分析':`${labels.outcome}；${spec.outcomeFamily||'未记录'} / ${spec.outcomeTransform||'未记录'}`,'结局定义决定模型类型和无效值，不能在看完结果后随意更改'],
+  ['复杂抽样',`${spec.psuVariable||'SDMVPSU'}、${spec.strataVariable||'SDMVSTRA'}；${result.weightRule||spec.weightVariable||'权重未记录'}`,'用于获得全国推断及设计一致的标准误、置信区间和 P 值'],
+  ['协变量',legacy?'年龄、性别、种族/族裔、贫困收入比、BMI':genericCovariates(spec),'用于控制预设混杂因素；仍不能排除未测量或残余混杂'],
+  ['缺失数据',imputation?'完整案例主分析；协变量多重插补敏感性分析':'完整案例主分析','暴露和结局不自动插补；样本损失和缺失机制必须单独解释']
+]}
+function mainEffectGuide(project,result){const row=primaryEstimate(result),labels=reportLabels(project,result);if(!row||![effect(row),row.ci_low,row.ci_high].every(finiteValue))return ['主要效应数据不完整，不能逐项解释。','置信区间和 P 值不可用时，不应形成方向性结论。','统计结果必须与变量定义、样本流程和模型诊断一起审核。'];const estimate=Number(effect(row)),ratio=ratioEstimate(row,result),nullValue=ratio?1:0,crosses=Number(row.ci_low)<=nullValue&&Number(row.ci_high)>=nullValue,supported=evidenceSupported(row,result),scale=ratio?(row.effect_type==='rate_ratio'?'RR':'OR'):'β',magnitude=ratio?`${labels.exposure}每增加一个冻结单位，${labels.outcome}的${row.effect_type==='rate_ratio'?'发生率':'优势（odds）'}估计${estimate>=1?'升高':'降低'}约 ${Math.abs((estimate-1)*100).toFixed(1)}%`:`${labels.exposure}每增加一个冻结单位，${labels.outcome}的加权均值估计${estimate>=0?'升高':'降低'} ${Math.abs(estimate).toFixed(3)} 个单位`;return [
+  `${scale}=${displayValue(estimate)}：${magnitude}。${scale==='OR'?'OR 描述优势比，不应直接写成绝对风险变化。':''}`,
+  `95% CI ${displayValue(row.ci_low)}–${displayValue(row.ci_high)}：${crosses?'区间跨越无效值，数据仍兼容“无关联”':'区间未跨越无效值，但精确度仍应结合区间宽度判断'}。`,
+  `P=${displayP(row.p_value)}：${supported?'达到预设统计学证据标准':'未达到预设统计学证据标准；不能把“未显著”解释成“已经证明没有关联”'}。`,
+  '统计学显著不等于临床或公共卫生意义重大；还需结合效应大小、基线风险、测量误差和既有研究证据。'
+]}
+function evidenceBalance(project,result){const row=primaryEstimate(result),sensitivity=(result.sensitivityCoefficients||[]).filter(item=>finiteValue(effect(item))),supported=evidenceSupported(row,result),nullValue=ratioEstimate(row,result)?1:0,mainDirection=finiteValue(effect(row))?Number(effect(row))>=nullValue:null,sameDirection=mainDirection===null?0:sensitivity.filter(item=>(Number(effect(item))>=(ratioEstimate(item,result)?1:0))===mainDirection).length,retention=Number(result.completeCaseDiagnostics?.retention),screened=project.evidence?.summary,quality=result.qualitySummary,qualityTotal=quality?.total??quality?.passed;const signal=[supported?'主模型置信区间未跨越无效值并达到预设统计学证据标准':'主模型提供了方向性估计，但未达到确认关联的预设标准',sensitivity.length?`${sameDirection}/${sensitivity.length} 个敏感性估计与主模型方向一致`:'未记录可比较的敏感性估计'];const limits=['横断面设计不能确定时间先后，存在反向因果可能','观察性研究不能排除未测量或残余混杂',Number.isFinite(retention)&&retention<.8?`完整案例保留率仅 ${(retention*100).toFixed(1)}%，选择偏倚风险较高`:'完整案例分析仍依赖缺失机制假设'];const context=['使用 NHANES 复杂抽样权重、分层和 PSU 进行全国推断',quality?`自动质量门：通过 ${quality.passed}/${qualityTotal} 项，警告 ${quality.warnings||0} 项`:'分析结果已通过必需质量门',screened?`文献人工筛选：纳入 ${screened.included||0} 篇、待定 ${screened.uncertain||0} 篇`:'文献证据需结合已筛选的 PubMed 结果单独判断'];const grade=supported?(sensitivity.length&&sameDirection>=Math.ceil(sensitivity.length/2)?'存在统计学关联信号且多数敏感性结果方向一致；证据仍限于观察性横断面关联。':'主模型存在统计学关联信号，但稳健性和外部证据仍需审查。'):'目前属于提示性或不确定证据，不能确认存在关联，也不能证明没有关联。';return {signal,limits,context,grade}}
+function listHtml(items){return `<ul>${items.map(item=>`<li>${esc(item)}</li>`).join('')}</ul>`}
+function enhancementCss(){return `.keybox{background:#eef5ea;border-left:4px solid var(--green,#174f3b);padding:14px 18px;border-radius:0 7px 7px 0;margin:18px 0}.keybox ul{margin:7px 0}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.stat{background:#fff;border:1px solid var(--line,#dfe3dc);border-radius:9px;padding:14px;text-align:center;box-shadow:0 2px 8px rgba(23,79,59,.06)}.stat .num{font-family:Georgia,"Microsoft YaHei",serif;font-size:21px;color:var(--green,#174f3b);font-weight:700}.stat .lab{font-size:12px;color:#607067}.term{background:#eef5ea;border:1px solid var(--line,#dfe3dc);border-radius:7px;padding:12px 15px;margin:14px 0}.term b{color:var(--green,#174f3b)}.evidence-table td{width:33.333%;vertical-align:top}.evidence-table ul{padding-left:18px;margin:0}.faq{padding:12px 0;border-bottom:1px solid var(--line,#dfe3dc)}.faq b{color:var(--green,#174f3b)}@media(max-width:760px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.evidence-table,.evidence-table tbody,.evidence-table tr,.evidence-table td{display:block;width:100%}}@media print{.stat{box-shadow:none}.keybox,.term{background:#fff}}`}
+function enhancedHtmlSections(project,result){const row=primaryEstimate(result),labels=reportLabels(project,result),flow=result.flow||{},interpretation=buildInterpretation(project,result),balance=evidenceBalance(project,result),methods=methodRows(project,result),cycles=(project.intent?.cycles||[]).length,finalN=flow.analytic_complete_case??result.completeCaseDiagnostics?.completeN,quality=result.qualitySummary,qualityTotal=quality?.total??quality?.passed,scale=ratioEstimate(row,result)?(row?.effect_type==='rate_ratio'?'RR':'OR'):'β';const intro=`<h2>30 秒看懂这项研究</h2><div class="keybox"><ul><li><b>研究问题：</b>${esc(project.question||`${labels.exposure}与${labels.outcome}是否相关？`)}</li><li><b>研究对象：</b>${esc(labels.population)}，最终分析 ${esc(finalN??'未记录')} 人。</li><li><b>核心结果：</b>${esc(interpretation.main)}</li><li><b>一句话结论：</b>${esc(interpretation.conclusion)}</li></ul></div><div class="grid"><div class="stat"><div class="num">${esc(finalN??'—')}</div><div class="lab">最终分析人数</div></div><div class="stat"><div class="num">${esc(cycles||'—')}</div><div class="lab">NHANES 周期数</div></div><div class="stat"><div class="num">${esc(row?`${scale} ${displayValue(effect(row))}`:'—')}</div><div class="lab">主暴露效应</div></div><div class="stat"><div class="num">${esc(row?`P ${displayP(row.p_value)}`:'—')}</div><div class="lab">统计学证据${quality?` · QC ${esc(quality.passed)}/${esc(qualityTotal)}`:''}</div></div></div>`;const method=`<h2>研究是怎么做的（通俗版）</h2><table><thead><tr><th>要素</th><th>冻结方案</th><th>为什么重要</th></tr></thead><tbody>${methods.map(item=>`<tr><td><b>${esc(item[0])}</b></td><td>${esc(item[1])}</td><td>${esc(item[2])}</td></tr>`).join('')}</tbody></table><div class="term"><b>什么是冻结方案？</b> 在查看研究结果前锁定暴露、结局、协变量、权重和缺失数据处理，减少根据结果反复挑选模型造成的偏倚。配置摘要和运行环境记录在报告末尾。</div>`;const guide=`<h2>主结果怎么读</h2><div class="term">${mainEffectGuide(project,result).map((item,index)=>`${index+1}. ${esc(item)}`).join('<br>')}</div>`;const evidence=`<h2>这份证据到底有多强？</h2><table class="evidence-table"><thead><tr><th>关联信号</th><th>制约结论的因素</th><th>方法与证据背景</th></tr></thead><tbody><tr><td>${listHtml(balance.signal)}</td><td>${listHtml(balance.limits)}</td><td>${listHtml(balance.context)}</td></tr></tbody></table><p class="term"><b>综合判断：</b>${esc(balance.grade)}</p>`;const faq=`<h2>常见问题</h2><div class="faq"><b>Q1：这个结果能证明${esc(labels.exposure)}导致${esc(labels.outcome)}吗？</b><br>不能。NHANES 横断面分析只能描述同一时期的关联，不能确定时间先后或排除反向因果。</div><div class="faq"><b>Q2：P 值没有达到 0.05，是否说明完全没有关联？</b><br>不是。正确含义是当前数据不足以排除无效值；应结合置信区间判断仍与哪些效应大小相容。</div><div class="faq"><b>Q3：结果显著时能否直接提出治疗或补充建议？</b><br>不能。观察性关联还需要临床意义评估、前瞻性研究和干预证据，不能直接转化为个体诊疗建议。</div><div class="faq"><b>Q4：为什么还要做敏感性、亚组或多重插补？</b><br>这些分析用于检查结论是否依赖某一种模型或缺失处理；方向一致能增加稳健性，但不能消除混杂和选择偏倚。</div>`;return {intro,method,guide,evidence,faq}}
+function enhancePublicationHtml(html,project,result){const sections=enhancedHtmlSections(project,result);let value=html.replace('</style>',`${enhancementCss()}</style>`).replace('<h2>结果摘要</h2>',`${sections.intro}<h2>研究问题与结果摘要</h2>`);const methodMarker=value.includes('<h2>加权描述性统计')?'<h2>加权描述性统计':value.includes('<h2>研究者冻结决策')?'<h2>研究者冻结决策':'<h2>样本流程';value=value.replace(methodMarker,`${sections.method}${methodMarker}`);value=value.replace('<h2>敏感性分析</h2>',`${sections.guide}<h2>敏感性分析</h2>`);value=value.replace('<h2>流行病学结论</h2>',`${sections.evidence}<h2>流行病学结论</h2>`);value=value.replace('<h2>局限性</h2>',`${sections.faq}<h2>局限性</h2>`);return value}
+function markdownEnhancements(project,result){const row=primaryEstimate(result),labels=reportLabels(project,result),flow=result.flow||{},interpretation=buildInterpretation(project,result),balance=evidenceBalance(project,result),methods=methodRows(project,result),cycles=(project.intent?.cycles||[]).length,finalN=flow.analytic_complete_case??result.completeCaseDiagnostics?.completeN,scale=ratioEstimate(row,result)?(row?.effect_type==='rate_ratio'?'RR':'OR'):'β';return {intro:`## 30 秒看懂这项研究
+
+- **研究问题：** ${project.question||`${labels.exposure}与${labels.outcome}是否相关？`}
+- **研究对象：** ${labels.population}，最终分析 ${finalN??'未记录'} 人。
+- **核心结果：** ${interpretation.main}
+- **一句话结论：** ${interpretation.conclusion}
+
+| 最终样本 | NHANES 周期 | 主效应 | P 值 |
+|---:|---:|---:|---:|
+| ${finalN??'—'} | ${cycles||'—'} | ${row?`${scale} ${displayValue(effect(row))}`:'—'} | ${row?displayP(row.p_value):'—'} |
+
+`,method:`## 研究方法（通俗版）
+
+| 要素 | 冻结方案 | 为什么重要 |
+|---|---|---|
+${methods.map(item=>`| ${mdCell(item[0])} | ${mdCell(item[1])} | ${mdCell(item[2])} |`).join('\n')}
+
+> 冻结方案是在查看研究结果前锁定暴露、结局、协变量、权重和缺失数据处理，用于减少根据结果反复挑选模型造成的偏倚。
+
+`,guide:`## 主结果怎么读
+
+${mainEffectGuide(project,result).map((item,index)=>`${index+1}. ${item}`).join('\n')}
+
+`,evidence:`## 证据强度与平衡判断
+
+| 关联信号 | 制约结论的因素 | 方法与证据背景 |
+|---|---|---|
+| ${mdCell(balance.signal.join('；'))} | ${mdCell(balance.limits.join('；'))} | ${mdCell(balance.context.join('；'))} |
+
+**综合判断：** ${balance.grade}
+
+`,faq:`## 常见问题
+
+### 这个结果能证明因果关系吗？
+
+不能。NHANES 横断面分析只能描述关联，不能确定时间先后或排除反向因果。
+
+### P≥0.05 是否说明完全没有关联？
+
+不是。它表示当前数据不足以排除无效值；应结合置信区间判断仍与哪些效应大小相容。
+
+### 统计学显著能否直接转化为治疗建议？
+
+不能。还需要评估效应大小、临床意义、前瞻性研究和干预证据。
+
+### 敏感性分析有什么用？
+
+用于判断结果是否依赖某一种模型或缺失数据处理。结果一致能增加稳健性，但不能消除混杂和选择偏倚。
+
+`}}
+function enhanceMarkdownReport(markdown,project,result){const sections=markdownEnhancements(project,result);let value=markdown.replace('## 结果摘要',`${sections.intro}## 研究问题与结果摘要`);const methodMarker=value.includes('## 加权描述性统计')?'## 加权描述性统计':value.includes('## 研究者冻结决策')?'## 研究者冻结决策':'## 样本流程';value=value.replace(methodMarker,`${sections.method}${methodMarker}`);value=value.replace('## 敏感性分析',`${sections.guide}## 敏感性分析`);value=value.replace('## 流行病学结论',`${sections.evidence}## 流行病学结论`);value=value.replace('## 局限性',`${sections.faq}## 局限性`);return value}
+function publicationMarkdownReport(project,result){return enhanceMarkdownReport(markdownReport(project,result),project,result)}
+function enhancedHtmlReport(project,result){return enhancePublicationHtml(htmlReport(project,result),project,result)}
+
+module.exports = { exposureRow, sensitivityRows, flowSvg, forestSvg, missingnessSvg, subgroupForestSvg, markdownReport: publicationMarkdownReport, htmlReport: enhancedHtmlReport };
