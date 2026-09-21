@@ -208,7 +208,7 @@ function htmlReport(project, result) { return isGeneric(result)?addImputationHtm
 
 function finiteValue(value){return value!==null&&value!==''&&Number.isFinite(Number(value))}
 function primaryEstimate(result){return isGeneric(result)?(result.coefficients||[]).find(item=>item.term==='analysis_exposure'):exposureRow(result)}
-function ratioEstimate(row,result){return !isGeneric(result)||['odds_ratio','rate_ratio','risk_ratio'].includes(row?.effect_type)}
+function ratioEstimate(row,result){return ['odds_ratio','rate_ratio','risk_ratio'].includes(row?.effect_type)||(!isGeneric(result)&&row?.term==='I(LBXVIDMS/10)'&&row?.model!=='continuous_phq9')}
 function evidenceSupported(row,result){if(!row||![effect(row),row.ci_low,row.ci_high,row.p_value].every(finiteValue))return false;const nullValue=ratioEstimate(row,result)?1:0;return Number(row.p_value)<.05&&(Number(row.ci_high)<nullValue||Number(row.ci_low)>nullValue)}
 function displayValue(value,digits=3){return finiteValue(value)?Number(value).toFixed(digits):'未记录'}
 function displayP(value){return !finiteValue(value)?'未记录':Number(value)<.001?'<0.001':Number(value).toFixed(3)}
