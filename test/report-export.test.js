@@ -55,6 +55,7 @@ test('formal Word and PDF exports are real binary documents with Chinese content
   const [docx, pdf] = await Promise.all([createDocxReport(project, result), createPdfReport(project, result)]);
   assert.equal(docx.subarray(0, 2).toString('ascii'), 'PK');
   assert.ok(docx.length > 5000);
+  assert.match(docx.toString('latin1'), /\.svg/);
   assert.equal(pdf.subarray(0, 4).toString('ascii'), '%PDF');
   assert.ok(pdf.length > 10000);
   assert.match(pdf.subarray(-32).toString('latin1'), /%%EOF/);

@@ -7,6 +7,7 @@ const {
   Document,
   Footer,
   HeadingLevel,
+  ImageRun,
   PageNumber,
   Packer,
   Paragraph,
@@ -18,10 +19,11 @@ const {
   VerticalAlign,
   WidthType,
 } = require('docx');
-const { markdownReport } = require('./report');
+const { markdownReport, flowSvg, forestSvg, missingnessSvg, subgroupForestSvg } = require('./report');
 
 const FONT_FAMILY = 'Noto Sans SC';
 const CSV_COLUMNS = ['section', 'model', 'term', 'label', 'effect_type', 'estimate', 'ci_low', 'ci_high', 'p_value', 'unweighted_n', 'metric', 'level', 'subgroup', 'interaction_p'];
+const TRANSPARENT_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XQv3AAAAAElFTkSuQmCC', 'base64');
 
 function numeric(value, digits = 3) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '未记录';
@@ -91,12 +93,6 @@ function manuscriptDraft(project, result) {
 
 加权描述性统计、主模型、敏感性分析、缺失模式和抽样设计诊断见随附结果表。${nonlinear}${subgroupText}自动质量控制共通过 ${result.qualitySummary?.passed ?? '全部必需'} 项必需检查。结果仅表示横断面关联，不能据此推断因果关系。
 
-## Interpretation checklist
-
-- 核对效应方向、单位和转换方式是否与预注册方案一致。
-- 核对所有变量在各周期的代码本定义与检测方法变化。
-- 补充文献引用、伦理声明、数据可用性声明和期刊要求内容。
-- 不得将横断面关联表述为因果效应。
 `;
 }
 
@@ -122,7 +118,7 @@ function resultTablesCsv(project, result) {
 }
 
 function cleanMarkdown(value) {
-  return String(value).replace(/\*\*/g, '').replace(/`/g, '').replace(/^>\s?/, '').trim();
+  return String(value).replaceAll('&lt;', '<').replaceAll('&gt;', '>').replace(/\*\*/g, '').replace(/`/g, '').replace(/^>\s?/, '').trim();
 }
 
 function tableCells(line) {
@@ -133,7 +129,49 @@ function isDivider(line) {
   return /^\|?(?:\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?$/.test(line.trim());
 }
 
-function markdownToDocx(markdown) {
+function svgSize(svg, maximumWidth = 620, maximumHeight = 420) {
+  const width = Number(/\bwidth="([0-9.]+)"/.exec(svg)?.[1] || 760);
+  const height = Number(/\bheight="([0-9.]+)"/.exec(svg)?.[1] || 240);
+  const scale = Math.min(maximumWidth / width, maximumHeight / height, 1);
+  return { width: Math.round(width * scale), height: Math.round(height * scale) };
+}
+
+function docxFigure(svg, caption) {
+  if (!svg) return [];
+  const transformation = svgSize(svg);
+  return [
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      keepNext: true,
+      spacing: { before: 160, after: 80 },
+      children: [new ImageRun({
+        type: 'svg',
+        data: Buffer.from(svg, 'utf8'),
+        transformation,
+        fallback: { type: 'png', data: TRANSPARENT_PNG, transformation },
+      })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 180 },
+      children: [new TextRun({ text: caption, italics: true, size: 18, color: '607067', font: FONT_FAMILY })],
+    }),
+  ];
+}
+
+function reportFigures(result) {
+  const figures = new Map([
+    ['样本纳入流程', docxFigure(flowSvg(result), '图 1 研究对象筛选与最终分析样本')],
+    ['主要模型结果', docxFigure(forestSvg(result), '图 2 主暴露效应与 95% 置信区间')],
+  ]);
+  const subgroup = subgroupForestSvg(result);
+  const missing = missingnessSvg(result);
+  if (subgroup) figures.set('高级分析', docxFigure(subgroup, '图 3 亚组效应与 95% 置信区间'));
+  if (missing) figures.set('缺失数据', docxFigure(missing, `图 ${subgroup ? 4 : 3} 分析字段缺失率`));
+  return figures;
+}
+
+function markdownToDocx(markdown, figures = new Map()) {
   const lines = String(markdown).replaceAll('\r', '').split('\n');
   const children = [];
   for (let index = 0; index < lines.length;) {
@@ -159,7 +197,11 @@ function markdownToDocx(markdown) {
       continue;
     }
     if (line.startsWith('# ')) children.push(new Paragraph({ text: cleanMarkdown(line.slice(2)), heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER }));
-    else if (line.startsWith('## ')) children.push(new Paragraph({ text: cleanMarkdown(line.slice(3)), heading: HeadingLevel.HEADING_1 }));
+    else if (line.startsWith('## ')) {
+      const heading = cleanMarkdown(line.slice(3));
+      children.push(new Paragraph({ text: heading, heading: HeadingLevel.HEADING_1 }));
+      if (figures.has(heading)) children.push(...figures.get(heading));
+    }
     else if (line.startsWith('### ')) children.push(new Paragraph({ text: cleanMarkdown(line.slice(4)), heading: HeadingLevel.HEADING_2 }));
     else if (/^- /.test(line)) children.push(new Paragraph({ text: cleanMarkdown(line.slice(2)), bullet: { level: 0 } }));
     else children.push(new Paragraph({ children: [new TextRun({ text: cleanMarkdown(line), font: FONT_FAMILY })], spacing: { after: 140, line: 360 } }));
@@ -184,7 +226,7 @@ async function createDocxReport(project, result) {
     },
     sections: [{
       properties: { page: { margin: { top: 1080, right: 1080, bottom: 1080, left: 1080 } } },
-      children: markdownToDocx(content),
+      children: markdownToDocx(content, reportFigures(result)),
       footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'NHANES Research Agent · ', font: FONT_FAMILY }), new TextRun({ children: [PageNumber.CURRENT], font: FONT_FAMILY })] })] }) },
     }],
   });
@@ -209,7 +251,94 @@ function pdfText(doc, text, options = {}) {
   if (!value) return doc.moveDown(options.gap || 0.35);
   const { x, y, ...textOptions } = options;
   doc.font('report-font');
-  return x === undefined && y === undefined ? doc.text(value, textOptions) : doc.text(value, x ?? doc.x, y ?? doc.y, textOptions);
+  if (x === undefined && y === undefined) return doc.text(value, textOptions);
+  const cursor = { x: doc.x, y: doc.y };
+  doc.text(value, x ?? doc.x, y ?? doc.y, textOptions);
+  doc.x = cursor.x;
+  doc.y = cursor.y;
+  return doc;
+}
+
+function ensurePdfSpace(doc, height) {
+  const limit = doc.page.height - doc.page.margins.bottom - 42;
+  if (doc.y + height > limit) doc.addPage();
+}
+
+function drawPdfFlow(doc, result) {
+  const flow = result.flow || {};
+  const rows = isGeneric(result)
+    ? [['合并后记录', flow.merged], ['符合目标年龄', flow.population_eligible], ['最终完整案例', flow.analytic_complete_case]]
+    : [['合并后记录', flow.merged], ['成年人', flow.adults], ['最终分析样本', flow.analytic_complete_case]];
+  const height = rows.length * 62 + 14;
+  ensurePdfSpace(doc, height);
+  const x = 118, width = doc.page.width - 236, startY = doc.y + 4;
+  rows.forEach((row, index) => {
+    const y = startY + index * 62;
+    doc.roundedRect(x, y, width, 42, 5).fillAndStroke('#F6F3EA', '#174F3B');
+    doc.fillColor('#17211D').fontSize(9);
+    pdfText(doc, `${row[0]}    n = ${row[1] ?? '未记录'}`, { x: x + 12, y: y + 13, width: width - 24, align: 'center', lineBreak: false });
+    if (index < rows.length - 1) doc.moveTo(x + width / 2, y + 42).lineTo(x + width / 2, y + 60).strokeColor('#174F3B').stroke();
+  });
+  doc.y = startY + height;
+  doc.fillColor('#607067').fontSize(8);
+  pdfText(doc, '图 1 研究对象筛选与最终分析样本', { align: 'center', paragraphGap: 6 });
+}
+
+function drawPdfForest(doc, result) {
+  const row = isGeneric(result)
+    ? (result.coefficients || []).find(item => item.term === 'analysis_exposure')
+    : (result.coefficients || []).find(item => item.term === 'I(LBXVIDMS/10)');
+  if (!row || ![effect(row), row.ci_low, row.ci_high].every(value => Number.isFinite(Number(value)))) return;
+  ensurePdfSpace(doc, 104);
+  const ratio = ['odds_ratio', 'rate_ratio', 'risk_ratio'].includes(row.effect_type);
+  const nullValue = ratio ? 1 : 0, estimate = Number(effect(row)), low = Number(row.ci_low), high = Number(row.ci_high);
+  const padding = Math.max((high - low) * 0.22, 0.1), minimum = Math.min(low, nullValue) - padding, maximum = Math.max(high, nullValue) + padding;
+  const left = 110, right = doc.page.width - 78, y = doc.y + 34, x = value => left + (Number(value) - minimum) / (maximum - minimum) * (right - left);
+  doc.fillColor('#17211D').fontSize(9); pdfText(doc, '主暴露效应及 95% 置信区间', { paragraphGap: 5 });
+  doc.moveTo(x(nullValue), y - 14).lineTo(x(nullValue), y + 18).dash(3, { space: 3 }).strokeColor('#8A9790').stroke().undash();
+  doc.moveTo(x(low), y).lineTo(x(high), y).lineWidth(2.5).strokeColor('#2A7F62').stroke();
+  doc.circle(x(estimate), y, 4.5).fill('#C77D2A');
+  doc.fillColor('#17211D').fontSize(8); pdfText(doc, `${numeric(estimate)} (${numeric(low)}-${numeric(high)})`, { x: right - 120, y: y + 14, width: 120, align: 'right', lineBreak: false });
+  doc.y = y + 42;
+  doc.fillColor('#607067').fontSize(8); pdfText(doc, '图 2 主暴露效应与 95% 置信区间', { align: 'center', paragraphGap: 6 });
+}
+
+function drawPdfSubgroups(doc, result) {
+  const rows = (result.subgroupAnalyses || []).filter(row => [effect(row), row.ci_low, row.ci_high].every(value => Number.isFinite(Number(value)))).slice(0, 12);
+  if (!rows.length) return;
+  const height = 42 + rows.length * 25;
+  ensurePdfSpace(doc, Math.min(height, 360));
+  const ratio = rows.some(row => ['odds_ratio', 'rate_ratio', 'risk_ratio'].includes(row.effect_type)), nullValue = ratio ? 1 : 0;
+  const minimum = Math.min(nullValue, ...rows.map(row => Number(row.ci_low))), maximum = Math.max(nullValue, ...rows.map(row => Number(row.ci_high))), padding = Math.max((maximum - minimum) * .08, .05), lo = minimum - padding, hi = maximum + padding;
+  const left = 225, right = doc.page.width - 72, x = value => left + (Number(value) - lo) / (hi - lo) * (right - left), startY = doc.y + 30;
+  doc.fillColor('#17211D').fontSize(9); pdfText(doc, '亚组效应与 95% 置信区间', { paragraphGap: 4 });
+  doc.moveTo(x(nullValue), startY - 10).lineTo(x(nullValue), startY + rows.length * 25).dash(3, { space: 3 }).strokeColor('#8A9790').stroke().undash();
+  rows.forEach((row, index) => {
+    const y = startY + index * 25;
+    doc.fillColor('#17211D').fontSize(7); pdfText(doc, `${row.subgroup} · ${row.level}`, { x: 58, y: y - 3, width: 155, lineBreak: false });
+    doc.moveTo(x(row.ci_low), y).lineTo(x(row.ci_high), y).lineWidth(2).strokeColor('#2A7F62').stroke();
+    doc.circle(x(effect(row)), y, 3.5).fill('#C77D2A');
+  });
+  doc.y = startY + rows.length * 25 + 10;
+  doc.fillColor('#607067').fontSize(8); pdfText(doc, '图 3 亚组分析森林图', { align: 'center', paragraphGap: 6 });
+}
+
+function drawPdfMissingness(doc, result) {
+  const rows = (result.missingnessDiagnostics || []).filter(row => Number.isFinite(Number(row.missing_pct))).sort((a, b) => Number(b.missing_pct) - Number(a.missing_pct)).slice(0, 8);
+  if (!rows.length) return;
+  const height = 36 + rows.length * 25;
+  ensurePdfSpace(doc, height);
+  const maximum = Math.max(5, ...rows.map(row => Number(row.missing_pct))), left = 185, chartWidth = doc.page.width - left - 86, startY = doc.y + 25;
+  doc.fillColor('#17211D').fontSize(9); pdfText(doc, '分析字段缺失率', { paragraphGap: 4 });
+  rows.forEach((row, index) => {
+    const y = startY + index * 25, barWidth = chartWidth * Number(row.missing_pct) / maximum;
+    doc.fillColor('#17211D').fontSize(7); pdfText(doc, row.variable, { x: 58, y: y - 2, width: 115, lineBreak: false });
+    doc.roundedRect(left, y, chartWidth, 10, 2).fill('#EDF3EE');
+    doc.roundedRect(left, y, Math.max(1, barWidth), 10, 2).fill('#2A7F62');
+    doc.fillColor('#17211D').fontSize(7); pdfText(doc, `${numeric(row.missing_pct, 1)}%`, { x: left + chartWidth + 6, y: y - 2, width: 40, lineBreak: false });
+  });
+  doc.y = startY + rows.length * 25 + 8;
+  doc.fillColor('#607067').fontSize(8); pdfText(doc, '分析字段缺失率图', { align: 'center', paragraphGap: 6 });
 }
 
 function createPdfReport(project, result) {
@@ -225,7 +354,14 @@ function createPdfReport(project, result) {
     for (const line of content.replaceAll('\r', '').split('\n')) {
       if (!line.trim()) { doc.moveDown(0.35); continue; }
       if (line.startsWith('# ')) { doc.fillColor('#174f3b').fontSize(20); pdfText(doc, line.slice(2), { align: 'center', paragraphGap: 12 }); }
-      else if (line.startsWith('## ')) { doc.fillColor('#174f3b').fontSize(15); pdfText(doc, line.slice(3), { paragraphGap: 7 }); }
+      else if (line.startsWith('## ')) {
+        const heading = cleanMarkdown(line.slice(3));
+        doc.fillColor('#174f3b').fontSize(15); pdfText(doc, heading, { paragraphGap: 7 });
+        if (heading === '样本纳入流程') drawPdfFlow(doc, result);
+        else if (heading === '主要模型结果') drawPdfForest(doc, result);
+        else if (heading === '高级分析') drawPdfSubgroups(doc, result);
+        else if (heading === '缺失数据') drawPdfMissingness(doc, result);
+      }
       else if (line.startsWith('### ')) { doc.fillColor('#174f3b').fontSize(12); pdfText(doc, line.slice(4), { paragraphGap: 5 }); }
       else if (line.startsWith('|')) { if (!isDivider(line)) { doc.fillColor('#24342e').fontSize(8); pdfText(doc, tableCells(line).join('  |  '), { paragraphGap: 2 }); } }
       else { doc.fillColor('#17211d').fontSize(10); pdfText(doc, line, { align: 'justify', paragraphGap: 5, lineGap: 2 }); }
