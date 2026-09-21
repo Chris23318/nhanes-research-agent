@@ -19,12 +19,14 @@ function generateModelScript(spec) {
   const family = spec.outcomeFamily === 'binary' ? 'quasibinomial()' : spec.outcomeFamily === 'count' ? 'quasipoisson(link="log")' : 'gaussian()';
   const ratioEffect = ['binary','count'].includes(spec.outcomeFamily);
   const effectType = spec.outcomeFamily === 'binary' ? 'odds_ratio' : spec.outcomeFamily === 'count' ? 'rate_ratio' : 'beta';
-  const analysisMode = spec.schemaVersion === '1.6' ? 'generic_survey_v6' : spec.schemaVersion === '1.5' ? 'generic_survey_v5' : 'generic_survey_v4';
-  const resultSchema = spec.schemaVersion === '1.6' ? '2.5' : spec.schemaVersion === '1.5' ? '2.4' : '2.3';
+  const analysisMode = spec.schemaVersion === '1.7' ? 'generic_survey_v7' : spec.schemaVersion === '1.6' ? 'generic_survey_v6' : spec.schemaVersion === '1.5' ? 'generic_survey_v5' : 'generic_survey_v4';
+  const resultSchema = spec.schemaVersion === '1.7' ? '2.6' : spec.schemaVersion === '1.6' ? '2.5' : spec.schemaVersion === '1.5' ? '2.4' : '2.3';
   const advanced=spec.advancedAnalysisPlan||{nonlinear:{method:'none'},subgroups:[]};
   const nonlinear=advanced.nonlinear?.method==='restricted_cubic_spline';
   const splineDf=Number(advanced.nonlinear?.df||4);
   const subgroupPlans=Array.isArray(advanced.subgroups)?advanced.subgroups:[];
+  const imputation=spec.missingDataPolicy?.strategy==='multiple_imputation'?spec.missingDataPolicy.imputation:null;
+  const miRequested=Boolean(imputation),miCovariates=covariates.map(x=>x.name);
   const nonlinearCode=nonlinear?[
     `spline_model <- svyglm(analysis_outcome ~ splines::ns(analysis_exposure,df=${splineDf})${covariates.length?' + '+covariates.map(x=>x.name).join(' + '):''},design=design,family=${family})`,
     'nonlinear_comparison <- tryCatch(anova(model,spline_model,method="Wald",force=TRUE),error=function(e) NULL)',
@@ -46,9 +48,35 @@ function generateModelScript(spec) {
       '}'
     ];
   });
+  const imputationCode=miRequested?[
+    `mi_covariates <- c(${miCovariates.map(name=>`"${name}"`).join(',')})`,
+    `imputation_diagnostics <- list(requested=TRUE,executed=FALSE,role="sensitivity_analysis",method="mice_chained_equations",m=${imputation.m},maxit=${imputation.maxit},seed=${imputation.seed},imputedVariables=mi_covariates,outcomeImputed=FALSE,exposureImputed=FALSE,pooling="rubin_rules_mitools",eligibleN=0,completeCaseN=nrow(analytic),imputedCellCount=0,loggedEventCount=0,reason=NULL)`,
+    `mi_core <- c("analysis_outcome","analysis_exposure","analysis_weight","${safe(spec.strataVariable)}","${safe(spec.psuVariable)}")`,
+    'mi_core_observed <- population_eligible & design_valid & complete.cases(analysis_source[,mi_core,drop=FALSE]) & is.finite(analysis_source$analysis_outcome) & is.finite(analysis_source$analysis_exposure)',
+    'mi_indices <- which(mi_core_observed); mi_full_source <- analysis_source[design_valid,,drop=FALSE]; mi_full_source$.source_row <- which(design_valid); mi_full_source$.mi_domain <- mi_full_source$.source_row %in% mi_indices',
+    'mi_data <- droplevels(analysis_source[mi_indices,unique(c(mi_core,mi_covariates)),drop=FALSE])',
+    'imputation_diagnostics$eligibleN <- nrow(mi_data)',
+    'if (nrow(mi_data)<30) stop("Fewer than 30 observations are eligible for multiple imputation")',
+    'mi_missing <- sum(is.na(mi_data[,mi_covariates,drop=FALSE]))',
+    'imputation_diagnostics$imputedCellCount <- mi_missing',
+    'if (mi_missing>0) {',
+    '  mi_method <- mice::make.method(mi_data); mi_method[] <- ""',
+    '  for (name in mi_covariates) { if (!anyNA(mi_data[[name]])) next; if (is.factor(mi_data[[name]])) { observed_levels <- nlevels(droplevels(mi_data[[name]])); if (observed_levels<2) stop(paste("Imputation factor has fewer than two observed levels:",name)); mi_method[[name]] <- if (observed_levels==2) "logreg" else "polyreg" } else { if (length(unique(mi_data[[name]][is.finite(mi_data[[name]])]))<2) stop(paste("Imputation variable has insufficient variation:",name)); mi_method[[name]] <- "pmm" } }',
+    '  mi_predictors <- mice::make.predictorMatrix(mi_data); mi_predictors[mi_method=="",] <- 0; diag(mi_predictors) <- 0',
+    `  mi_fit <- mice::mice(mi_data,m=${imputation.m},maxit=${imputation.maxit},method=mi_method,predictorMatrix=mi_predictors,seed=${imputation.seed},printFlag=FALSE)`,
+    `  mi_models <- lapply(seq_len(${imputation.m}),function(index) { completed <- mice::complete(mi_fit,index); completed$.source_row <- mi_indices; completed_full <- mi_full_source; completed_match <- match(completed_full$.source_row,completed$.source_row); matched <- !is.na(completed_match); for(name in mi_covariates) completed_full[[name]][matched] <- completed[[name]][completed_match[matched]]; completed_full_design <- svydesign(ids=~${safe(spec.psuVariable)},strata=~${safe(spec.strataVariable)},weights=~analysis_weight,nest=TRUE,data=completed_full); completed_design <- subset(completed_full_design,.mi_domain); completed_design$variables <- droplevels(completed_design$variables); if (nrow(completed_design$variables)!=nrow(completed) || degf(completed_design)<=0) stop("Imputed survey domain is invalid"); svyglm(${formula},design=completed_design,family=${family}) })`,
+    '  mi_pool <- mitools::MIcombine(mi_models); mi_term <- "analysis_exposure"',
+    '  if (!(mi_term %in% names(mi_pool$coefficients))) stop("Pooled multiple-imputation model has no exposure coefficient")',
+    '  mi_estimate <- as.numeric(mi_pool$coefficients[[mi_term]]); mi_se <- sqrt(as.numeric(mi_pool$variance[mi_term,mi_term])); mi_df <- as.numeric(mi_pool$df[[mi_term]]); if (!is.finite(mi_df) || mi_df<=0) mi_df <- Inf; mi_critical <- if(is.finite(mi_df)) qt(0.975,mi_df) else qnorm(0.975); mi_low <- mi_estimate-mi_critical*mi_se; mi_high <- mi_estimate+mi_critical*mi_se; mi_p <- if(is.finite(mi_df)) 2*pt(abs(mi_estimate/mi_se),df=mi_df,lower.tail=FALSE) else 2*pnorm(abs(mi_estimate/mi_se),lower.tail=FALSE)',
+    '  mi_row <- data.frame(model="multiple_imputation",term=mi_term,estimate=mi_estimate,std_error=mi_se,p_value=mi_p,ci_low=mi_low,ci_high=mi_high)',
+    ratioEffect ? `  mi_row$effect <- exp(mi_row$estimate); mi_row$ci_low <- exp(mi_row$ci_low); mi_row$ci_high <- exp(mi_row$ci_high); mi_row$effect_type <- "${effectType}"` : '  mi_row$effect <- mi_row$estimate; mi_row$effect_type <- "beta"',
+    '  sensitivity_result <- bind_rows(sensitivity_result,mi_row)',
+    '  imputation_diagnostics$executed <- TRUE; imputation_diagnostics$loggedEventCount <- if(is.null(mi_fit$loggedEvents)) 0 else nrow(mi_fit$loggedEvents); imputation_diagnostics$fractionMissingInformation <- if(!is.null(mi_pool$missinfo) && mi_term %in% names(mi_pool$missinfo)) as.numeric(mi_pool$missinfo[[mi_term]]) else NULL',
+    '} else { imputation_diagnostics$reason <- "no_missing_covariate_values" }'
+  ]:['imputation_diagnostics <- list(requested=FALSE,executed=FALSE,role=NULL,method=NULL,m=NULL,maxit=NULL,seed=NULL,imputedVariables=list(),outcomeImputed=FALSE,exposureImputed=FALSE,pooling=NULL,eligibleN=NULL,completeCaseN=nrow(analytic),imputedCellCount=0,loggedEventCount=0,reason="not_requested")'];
   return [
     '# Generated from an approved model specification. Review artifacts before interpretation.',
-    'suppressPackageStartupMessages({ library(survey); library(dplyr); library(jsonlite) })', 'options(survey.lonely.psu="adjust")',
+    `suppressPackageStartupMessages({ library(survey); library(dplyr); library(jsonlite)${miRequested?'; library(mice); library(mitools)':''} })`, 'options(survey.lonely.psu="adjust")',
     'args <- commandArgs(trailingOnly=TRUE)', 'if (length(args)<2) stop("Usage: Rscript model.R MERGED_RDS OUTPUT_DIR")',
     'analytic <- readRDS(args[[1]])', 'assembled_n <- nrow(analytic)', 'output_dir <- args[[2]]', 'dir.create(output_dir,recursive=TRUE,showWarnings=FALSE)',
     'if (!("RIDAGEYR" %in% names(analytic))) stop("RIDAGEYR is required for the approved population restriction")',
@@ -70,6 +98,7 @@ function generateModelScript(spec) {
     'analytic$.analysis_domain <- complete',
     'flow <- data.frame(stage=c("assembled","population_eligible","complete_case"),n=c(assembled_n,population_n,sum(complete)))',
     'complete_case_diagnostics <- list(populationN=population_n,completeN=sum(complete),retention=as.numeric(sum(complete)/population_n))',
+    'analysis_source <- analytic',
     'design_source <- droplevels(analytic[design_valid,,drop=FALSE])', 'if (nrow(design_source)<30) stop("Fewer than 30 observations with valid survey design fields")',
     `full_design <- svydesign(ids=~${safe(spec.psuVariable)},strata=~${safe(spec.strataVariable)},weights=~analysis_weight,nest=TRUE,data=design_source)`,
     'design <- subset(full_design,.analysis_domain)', 'design$variables <- droplevels(design$variables)', 'analytic <- design$variables',
@@ -108,6 +137,7 @@ function generateModelScript(spec) {
     `trimmed_model <- svyglm(${formula},design=trimmed_design,family=${family})`,
     'sensitivity_result <- bind_rows(extract_exposure(unadjusted_model,"unadjusted"),extract_exposure(trimmed_model,"weight_trim_1_99"))',
     'if (any(!is.finite(as.matrix(sensitivity_result[c("effect","ci_low","ci_high","p_value")]))) ) stop("Nonfinite sensitivity result")',
+    ...imputationCode,
     ...nonlinearCode,
     'subgroup_rows <- list()',
     ...subgroupCode,
@@ -116,9 +146,10 @@ function generateModelScript(spec) {
     `design_diagnostics <- list(degreesFreedom=as.numeric(degf(design)),strata=length(unique(analytic[["${safe(spec.strataVariable)}"]])),psu=length(unique(interaction(analytic[["${safe(spec.strataVariable)}"]],analytic[["${safe(spec.psuVariable)}"]],drop=TRUE))))`,
     'domain_diagnostics <- list(method="survey_subset",fullDesignN=nrow(full_design$variables),populationEligibleN=population_n,analyticDomainN=nrow(analytic),excludedInvalidDesignN=assembled_n-nrow(full_design$variables))',
     'weight_diagnostics <- list(min=weight_quantiles[1],p01=weight_quantiles[2],median=weight_quantiles[3],p99=weight_quantiles[4],max=weight_quantiles[5],positive=sum(analytic$analysis_weight>0),trimmed=sum(analytic$analysis_weight<weight_limits[1] | analytic$analysis_weight>weight_limits[2]))',
-    'write.csv(flow,file.path(output_dir,"model-sample-flow.csv"),row.names=FALSE)', 'write.csv(missingness_result,file.path(output_dir,"missingness-diagnostics.csv"),row.names=FALSE)', 'write.csv(descriptive_result,file.path(output_dir,"descriptive-statistics.csv"),row.names=FALSE)', 'write.csv(coefficient_result,file.path(output_dir,"model-coefficients.csv"),row.names=FALSE)', 'write.csv(sensitivity_result,file.path(output_dir,"sensitivity-coefficients.csv"),row.names=FALSE)', 'write.csv(subgroup_result,file.path(output_dir,"subgroup-results.csv"),row.names=FALSE)',
-    'runtime <- list(rVersion=R.version.string,surveyVersion=as.character(packageVersion("survey")),havenVersion=as.character(packageVersion("haven")),completedAt=format(Sys.time(),tz="UTC",usetz=TRUE))',
-    `result_document <- list(schemaVersion="${resultSchema}",status="completed",analysisMode="${analysisMode}",analysis="survey-weighted ${spec.outcomeFamily} regression",outcomeFamily="${spec.outcomeFamily}",exposureUnit="${spec.exposureTransform}",cycles=c(${spec.cycles.map(cycleLiteral).join(',')}),weightRule="${weightRule}",weightDiagnostics=weight_diagnostics,designDiagnostics=design_diagnostics,domainDiagnostics=domain_diagnostics,missingnessDiagnostics=missingness_result,completeCaseDiagnostics=complete_case_diagnostics,modelDiagnostics=model_diagnostics,descriptiveStatistics=descriptive_result,advancedAnalysisPlan=list(nonlinearMethod="${nonlinear?'restricted_cubic_spline':'none'}",splineDf=${nonlinear?splineDf:'NULL'},subgroupCount=${subgroupPlans.length}),nonlinearAnalysis=nonlinear_result,subgroupAnalyses=subgroup_result,flow=list(merged=assembled_n,population_eligible=population_n,analytic_complete_case=nrow(analytic)${spec.outcomeFamily === 'binary' ? ',outcome_cases=sum(analytic$analysis_outcome==1)' : ''}),coefficients=coefficient_result,sensitivityCoefficients=sensitivity_result,sensitivityPlan=c("unadjusted","weight_trim_1_99"),warnings=c("Cross-sectional association; causal interpretation is not supported.","Primary model uses complete cases; variable-level missingness and retention are reported, but multiple imputation was not executed.","Subgroup and nonlinear analyses are secondary; interaction P values are exploratory and unadjusted for multiplicity.","Pregnancy restriction was not applied unless encoded in the approved population definition."),modelSpecDigest="${spec.digest}",runtime=runtime)`,
+    'imputation_diagnostics_table <- data.frame(metric=c("requested","executed","role","method","m","maxit","seed","eligibleN","completeCaseN","imputedCellCount","loggedEventCount","fractionMissingInformation","reason"),value=vapply(c("requested","executed","role","method","m","maxit","seed","eligibleN","completeCaseN","imputedCellCount","loggedEventCount","fractionMissingInformation","reason"),function(name) { value <- imputation_diagnostics[[name]]; if(is.null(value)) "" else paste(value,collapse=";") },character(1)))',
+    'write.csv(flow,file.path(output_dir,"model-sample-flow.csv"),row.names=FALSE)', 'write.csv(missingness_result,file.path(output_dir,"missingness-diagnostics.csv"),row.names=FALSE)', 'write.csv(imputation_diagnostics_table,file.path(output_dir,"imputation-diagnostics.csv"),row.names=FALSE)', 'write.csv(descriptive_result,file.path(output_dir,"descriptive-statistics.csv"),row.names=FALSE)', 'write.csv(coefficient_result,file.path(output_dir,"model-coefficients.csv"),row.names=FALSE)', 'write.csv(sensitivity_result,file.path(output_dir,"sensitivity-coefficients.csv"),row.names=FALSE)', 'write.csv(subgroup_result,file.path(output_dir,"subgroup-results.csv"),row.names=FALSE)',
+    `runtime <- list(rVersion=R.version.string,surveyVersion=as.character(packageVersion("survey")),havenVersion=as.character(packageVersion("haven"))${miRequested?',miceVersion=as.character(packageVersion("mice")),mitoolsVersion=as.character(packageVersion("mitools"))':''},completedAt=format(Sys.time(),tz="UTC",usetz=TRUE))`,
+    `result_document <- list(schemaVersion="${resultSchema}",status="completed",analysisMode="${analysisMode}",analysis="survey-weighted ${spec.outcomeFamily} regression",outcomeFamily="${spec.outcomeFamily}",exposureUnit="${spec.exposureTransform}",cycles=c(${spec.cycles.map(cycleLiteral).join(',')}),weightRule="${weightRule}",weightDiagnostics=weight_diagnostics,designDiagnostics=design_diagnostics,domainDiagnostics=domain_diagnostics,missingnessDiagnostics=missingness_result,completeCaseDiagnostics=complete_case_diagnostics,imputationDiagnostics=imputation_diagnostics,modelDiagnostics=model_diagnostics,descriptiveStatistics=descriptive_result,advancedAnalysisPlan=list(nonlinearMethod="${nonlinear?'restricted_cubic_spline':'none'}",splineDf=${nonlinear?splineDf:'NULL'},subgroupCount=${subgroupPlans.length}),nonlinearAnalysis=nonlinear_result,subgroupAnalyses=subgroup_result,flow=list(merged=assembled_n,population_eligible=population_n,analytic_complete_case=nrow(analytic)${spec.outcomeFamily === 'binary' ? ',outcome_cases=sum(analytic$analysis_outcome==1)' : ''}),coefficients=coefficient_result,sensitivityCoefficients=sensitivity_result,sensitivityPlan=c("unadjusted","weight_trim_1_99"${miRequested?',"multiple_imputation"':''}),warnings=c("Cross-sectional association; causal interpretation is not supported.","${miRequested?'Primary model uses complete cases; covariate-only multiple imputation is a prespecified sensitivity analysis and does not impute exposure or outcome.':'Primary model uses complete cases; variable-level missingness and retention are reported, but multiple imputation was not executed.'}","Subgroup and nonlinear analyses are secondary; interaction P values are exploratory and unadjusted for multiplicity.","Pregnancy restriction was not applied unless encoded in the approved population definition."),modelSpecDigest="${spec.digest}",runtime=runtime)`,
     'write_json(result_document,file.path(output_dir,"result.json"),auto_unbox=TRUE,pretty=TRUE,digits=NA,na="null")',
     'saveRDS(list(model=model,unadjusted_model=unadjusted_model,trimmed_model=trimmed_model,spec_digest="'+spec.digest+'",session=sessionInfo()),file.path(output_dir,"model.rds"))'
   ].join('\n');

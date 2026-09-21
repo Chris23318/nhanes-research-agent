@@ -99,6 +99,16 @@ function subgroupInterpretation(result) {
   return `共报告 ${variables.length} 个预设亚组变量、${rows.length} 个分层估计。${heterogeneous.length ? `${heterogeneous.map(([name, value]) => `${name}（交互 ${pExpression(value)}）`).join('、')}出现探索性效应异质性信号。` : '未观察到交互 P<0.05 的明确异质性信号。'}亚组结果未进行多重性校正，不应根据单个分层 P 值宣称人群差异。`;
 }
 
+function imputationInterpretation(result) {
+  const value = result.imputationDiagnostics || {};
+  if (value.requested !== true) return '本分析未预设多重插补。';
+  if (value.executed !== true) return value.reason === 'no_missing_covariate_values'
+    ? '已预设协变量多重插补敏感性分析，但符合条件的数据中协变量没有缺失值，因此无需执行插补。'
+    : '多重插补未成功执行，不能据此评价缺失数据稳健性。';
+  const fraction = finite(value.fractionMissingInformation) ? `；主暴露系数的缺失信息比例为 ${(100 * Number(value.fractionMissingInformation)).toFixed(1)}%` : '';
+  return `使用链式方程完成 ${number(value.m, 0)} 份协变量插补数据集，每份迭代 ${number(value.maxit, 0)} 次，并在每份数据中重建复杂抽样设计后按 Rubin 法则合并估计（插补候选 n=${number(value.eligibleN, 0)}${fraction}）。暴露和结局未被插补；该结果属于敏感性分析，不能替代对缺失机制和结构性缺失的判断。`;
+}
+
 function epidemiologicConclusion(project, result) {
   const main = (result.coefficients || []).find(item => item.term === 'analysis_exposure') || (result.coefficients || []).find(item => item.term === 'I(LBXVIDMS/10)');
   const exp = exposureLabel(project), out = outcomeLabel(project);
@@ -115,8 +125,9 @@ function buildInterpretation(project, result) {
     diagnostics: diagnosticsInterpretation(result),
     nonlinear: nonlinearInterpretation(result),
     subgroup: subgroupInterpretation(result),
+    imputation: imputationInterpretation(result),
     conclusion: epidemiologicConclusion(project, result),
   };
 }
 
-module.exports = { buildInterpretation, mainInterpretation, sensitivityInterpretation, missingnessInterpretation, diagnosticsInterpretation, nonlinearInterpretation, subgroupInterpretation, epidemiologicConclusion };
+module.exports = { buildInterpretation, mainInterpretation, sensitivityInterpretation, missingnessInterpretation, diagnosticsInterpretation, nonlinearInterpretation, subgroupInterpretation, imputationInterpretation, epidemiologicConclusion };
