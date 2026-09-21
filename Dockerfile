@@ -18,6 +18,7 @@ COPY --chown=node:node src ./src
 COPY --chown=node:node runner ./runner
 COPY --chown=node:node scripts ./scripts
 RUN node scripts/validate-generated-model.js | Rscript -e 'parse(file("stdin"))'
+RUN Rscript scripts/validate-mi-runtime.R
 
 USER node
 EXPOSE 4173
