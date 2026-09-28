@@ -9,6 +9,7 @@ const { searchPubMed, buildQuery } = require('./pubmed');
 const { assessFeasibility } = require('./feasibility');
 const { discoverVariableMap } = require('./variable-discovery');
 const { buildAgentPlan, inferOutcomeType, modelFor } = require('./research-agent');
+const { validateResearchBrief, mergeResearchBrief } = require('./research-brief');
 
 const projects = new Map();
 const bus = new EventEmitter();
@@ -43,10 +44,11 @@ function reconcileModelIntent(fallback, value, model) {
 
 function createProject(input) {
   const question = validateQuestion(input);
-  const intent = parseQuestion(question);
-  const project = { id: id('prj'), title: intent.title, question, intent, status: 'draft', stage: null, createdAt: new Date().toISOString(), events: [], approvals: [] };
+  const researchBrief = validateResearchBrief(input.researchBrief);
+  const intent = mergeResearchBrief(parseQuestion(question), researchBrief);
+  const project = { id: id('prj'), title: intent.title, question, researchBrief, intent, status: 'draft', stage: null, createdAt: new Date().toISOString(), events: [], approvals: [] };
   projects.set(project.id, project);
-  defaultStore.save(project, 'project.created', { question });
+  defaultStore.save(project, 'project.created', { question, researchBrief });
   return project;
 }
 
@@ -94,7 +96,7 @@ async function runProjectOnce(projectId, options = {}) {
     try {
       const result = await interpretWithModel(project.question, options.modelOptions);
       project.modelTrace = result.trace;
-      return reconcileModelIntent(fallback, result.intent, result.model);
+      return mergeResearchBrief(reconcileModelIntent(fallback, result.intent, result.model), project.researchBrief);
     } catch (error) {
       const reason = ({ MODEL_INVALID_INTENT: '模型多次返回不合规字段', MODEL_ROUND_LIMIT: '模型达到调用轮次上限', MODEL_NOT_CONFIGURED: '模型尚未配置', MODEL_HTTP_402: '模型账户余额不足' })[error.message] || '模型调用未成功';
       return { ...fallback, ambiguities: [...fallback.ambiguities, `${reason}，当前采用规则解析`], parser: { ...fallback.parser, modelStatus: 'unavailable', fallbackReason: reason } };
@@ -120,12 +122,14 @@ async function runProjectOnce(projectId, options = {}) {
     }
   });
   project.protocol = await work('protocol', '结合证据生成统计分析方案', () => {
-    const cycles = project.intent.cycles || [], outcomeType = inferOutcomeType(project.intent), recommendations = project.literature.summary?.recommendations || [];
-    const secondary = new Set(['暴露连续值与分类编码的稳健性比较', '预设亚组交互检验']);
-    if (project.literature.summary?.methodCounts?.['restricted cubic spline']) secondary.add('限制性立方样条非线性分析');
+    const cycles = project.intent.cycles || [], outcomeType = inferOutcomeType(project.intent), recommendations = project.literature.summary?.recommendations || [], preferences = new Set(project.intent.analysisPreferences || []), guided = Boolean(project.researchBrief);
+    const secondary = new Set();
+    if (!guided || preferences.has('进行稳健性和敏感性分析')) secondary.add('暴露连续值与分类编码的稳健性比较');
+    if (!guided || preferences.has('预设有依据的亚组和交互分析')) secondary.add('预设亚组交互检验');
+    if (project.literature.summary?.methodCounts?.['restricted cubic spline'] || preferences.has('评估暴露与结局的非线性关系')) secondary.add('限制性立方样条非线性分析');
     if (project.literature.summary?.methodCounts?.['linear regression']) secondary.add('连续结局的 survey-weighted linear regression');
-    secondary.add('完整案例与多重插补敏感性分析');
-    return { schemaVersion: '1.4', design: 'pooled cross-sectional complex survey', estimand: '目标人群中的横断面调整关联', causalInterpretationAllowed: false, outcomeType, weight: `根据最小分析子样本自动选择，并除以 ${cycles.length || 'K'} 个合并周期`, primaryModel: modelFor(outcomeType), secondary: [...secondary], literatureCandidates: project.literature.articles?.length || 0, evidenceMethodRecommendations: recommendations, methodEvidenceMatrix: project.literature.summary?.methodMatrix || [], methodEvidenceDecisions: project.literature.summary?.methodDecisions || [], evidenceStatus: 'provisional_unreviewed', approvalRequired: true };
+    if (!guided || preferences.has('评估缺失数据并在适用时进行多重插补敏感性分析')) secondary.add('完整案例与多重插补敏感性分析');
+    return { schemaVersion: '1.5', design: 'pooled cross-sectional complex survey', estimand: '目标人群中的横断面调整关联', causalInterpretationAllowed: false, researchAim: project.intent.researchAim || '分析关联', requestedAnalyses: [...preferences], weight: `根据最小分析子样本自动选择，并除以 ${cycles.length || 'K'} 个合并周期`, outcomeType, primaryModel: modelFor(outcomeType), secondary: [...secondary], literatureCandidates: project.literature.articles?.length || 0, evidenceMethodRecommendations: recommendations, methodEvidenceMatrix: project.literature.summary?.methodMatrix || [], methodEvidenceDecisions: project.literature.summary?.methodDecisions || [], evidenceStatus: 'provisional_unreviewed', approvalRequired: true };
   });
   project.agentPlan = buildAgentPlan(project);
   project.status = 'awaiting_approval';
@@ -155,7 +159,7 @@ function saveEvidence(projectId, input = {}) {
   delete project.modelSpec;
   const summary = summarizeEvidence(items, { outcomeType: inferOutcomeType(project.intent) });
   project.evidence = { query: String(input.query || '').slice(0, 5000), retrievedAt: input.retrievedAt || null, screenedAt: new Date().toISOString(), items, summary, methodEvidence: { schemaVersion: '1.0', basis: 'screened_pubmed_title_abstract', matrix: summary.methodMatrix, decisions: summary.methodDecisions, warning: summary.warning } };
-  project.protocol = { ...(project.protocol || {}), schemaVersion: '1.4', frozen: false, frozenAt: null, approvalId: null, evidenceBasedRecommendations: summary.recommendations, methodEvidenceMatrix: summary.methodMatrix, methodEvidenceDecisions: summary.methodDecisions, evidenceIncluded: summary.included, evidenceUpdatedAt: project.evidence.screenedAt, evidenceStatus: 'screened_title_abstract', approvalRequired: true };
+  project.protocol = { ...(project.protocol || {}), schemaVersion: '1.5', frozen: false, frozenAt: null, approvalId: null, evidenceBasedRecommendations: summary.recommendations, methodEvidenceMatrix: summary.methodMatrix, methodEvidenceDecisions: summary.methodDecisions, evidenceIncluded: summary.included, evidenceUpdatedAt: project.evidence.screenedAt, evidenceStatus: 'screened_title_abstract', approvalRequired: true };
   project.status = 'awaiting_approval';
   project.feasibility = assessFeasibility(project.intent, project.variables);
   project.agentPlan = buildAgentPlan(project);

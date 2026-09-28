@@ -11,6 +11,13 @@ test('agent workflow automatically retrieves verified PubMed records', async () 
   finally { if (previous === undefined) delete process.env.PUBMED_AUTO_SEARCH; else process.env.PUBMED_AUTO_SEARCH = previous; }
 });
 
+test('structured brief preferences become traceable protocol requests', async () => {
+  const previous = process.env.PUBMED_AUTO_SEARCH; process.env.PUBMED_AUTO_SEARCH = 'false';
+  const researchBrief={source:'guided',exposure:'睡眠时长',outcome:'心血管疾病',population:'美国 20 岁及以上成年人',cycles:'使用 2017–2018 年 NHANES 周期',aim:'分析关联',covariates:['年龄','性别'],analysisOptions:['评估暴露与结局的非线性关系'],notes:''};
+  try { const project=createProject({question:'在美国成年人中研究睡眠时长和心血管疾病的关联。',researchBrief}),completed=await runProject(project.id);assert.equal(completed.protocol.schemaVersion,'1.5');assert.deepEqual(completed.protocol.requestedAnalyses,researchBrief.analysisOptions);assert.ok(completed.protocol.secondary.includes('限制性立方样条非线性分析'));assert.ok(!completed.protocol.secondary.includes('预设亚组交互检验'));assert.equal(completed.intent.parser.mode,'structured-brief-v1'); }
+  finally { if (previous === undefined) delete process.env.PUBMED_AUTO_SEARCH; else process.env.PUBMED_AUTO_SEARCH = previous; }
+});
+
 test('research revisions preserve provenance but require fresh approval', async () => {
   const previous = process.env.PUBMED_AUTO_SEARCH; process.env.PUBMED_AUTO_SEARCH = 'false';
   try {
