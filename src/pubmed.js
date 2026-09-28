@@ -73,10 +73,32 @@ function inferMethods(article) {
   const rules = [
     ['cross-sectional', /cross[- ]sectional/], ['cohort', /cohort|longitudinal/], ['systematic review', /systematic review|meta-analysis/],
     ['survey-weighted analysis', /survey[- ]weighted|sample weight|complex survey/], ['logistic regression', /logistic regression|odds ratio/],
-    ['linear regression', /linear regression/], ['Cox regression', /cox proportional|hazard ratio/], ['restricted cubic spline', /restricted cubic spline|spline regression/]
+    ['linear regression', /linear regression/], ['Poisson regression', /poisson regression|prevalence ratio|rate ratio/],
+    ['Cox regression', /cox proportional|hazard ratio/], ['restricted cubic spline', /restricted cubic spline|spline regression/],
+    ['multiple imputation', /multiple imputation|chained equations|\bmice\b/], ['complete-case analysis', /complete[- ]case|complete cases/],
+    ['subgroup analysis', /subgroup|stratified analys/], ['interaction analysis', /interaction term|effect modification/],
+    ['trend test', /p for trend|test for trend/], ['propensity score', /propensity score/], ['mediation analysis', /mediation analys/]
   ];
   for (const [label, pattern] of rules) if (pattern.test(text)) tags.push(label);
-  return { tags, basis: 'rule-based inference from title and abstract; verify full text' };
+  const design = ['cross-sectional', 'cohort', 'systematic review'].find(label => tags.includes(label)) || 'not identified in title/abstract';
+  const modelFamilies = ['logistic regression', 'linear regression', 'Poisson regression', 'Cox regression'].filter(label => tags.includes(label));
+  const effectMeasures = [['odds ratio', /odds ratio|\bORs?\b/i], ['hazard ratio', /hazard ratio|\bHRs?\b/i], ['risk/rate/prevalence ratio', /risk ratio|rate ratio|prevalence ratio/i], ['regression coefficient', /regression coefficient|beta coefficient|β/i]].filter(([, pattern]) => pattern.test(`${article.title || ''} ${article.abstract || ''}`)).map(([label]) => label);
+  const cycles = [...new Set([...text.matchAll(/(?:nhanes[^.]{0,80})?\b((?:19|20)\d{2})\s*[-–—/]\s*((?:19|20)\d{2})\b/gi)].map(match => `${match[1]}-${match[2]}`))].slice(0, 12);
+  return {
+    tags,
+    details: {
+      studyDesign: design,
+      modelFamilies,
+      complexSurvey: tags.includes('survey-weighted analysis') ? 'reported' : 'not identified in title/abstract',
+      nonlinear: tags.includes('restricted cubic spline') ? 'restricted cubic spline reported' : 'not identified in title/abstract',
+      missingData: tags.includes('multiple imputation') ? 'multiple imputation reported' : tags.includes('complete-case analysis') ? 'complete-case analysis reported' : 'not identified in title/abstract',
+      secondaryAnalyses: ['subgroup analysis', 'interaction analysis', 'trend test', 'mediation analysis'].filter(label => tags.includes(label)),
+      effectMeasures,
+      adjustment: /adjusted for|multivariable|covariates? (?:included|were|comprised)/i.test(`${article.title || ''} ${article.abstract || ''}`) ? 'multivariable adjustment reported' : 'not identified in title/abstract',
+      nhanesCycles: cycles
+    },
+    basis: 'rule-based extraction from title and abstract; verify the full text before freezing the protocol'
+  };
 }
 
 function scoreRelevance(article, input) {

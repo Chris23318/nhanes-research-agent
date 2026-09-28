@@ -24,6 +24,9 @@ test('PubMed adapter returns audited summaries',async()=>{
   assert.equal(result.articles[0].doi,'10.1/test');
   assert.match(result.articles[0].abstract,/METHODS/);
   assert.ok(result.articles[0].methods.tags.includes('logistic regression'));
+  assert.equal(result.articles[0].methods.details.studyDesign,'cross-sectional');
+  assert.deepEqual(result.articles[0].methods.details.modelFamilies,['logistic regression']);
+  assert.equal(result.articles[0].methods.details.complexSurvey,'reported');
   assert.deepEqual(result.articles[0].publicationTypes,['Journal Article']);
   assert.equal(result.articles[0].relevance.score,0);
   assert.equal(result.source,'NCBI PubMed E-utilities');

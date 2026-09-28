@@ -114,7 +114,7 @@ async function runProjectOnce(projectId, options = {}) {
     if (process.env.PUBMED_AUTO_SEARCH === 'false') return { query, mode: 'disabled', articles: [], warning: 'Automated PubMed retrieval is disabled in this environment.' };
     try {
       const result = await (options.searchPubMed || searchPubMed)(input, { email: process.env.NCBI_EMAIL, apiKey: process.env.NCBI_API_KEY, tool: 'nhanes_research_agent', timeoutMs: 10000 });
-      return { ...result, mode: 'live', summary: summarizeRetrievedEvidence(result.articles), warning: result.compliance?.contactEmailConfigured ? null : 'NCBI contact email is not configured; configure NCBI_EMAIL before high-volume use.' };
+      return { ...result, mode: 'live', summary: summarizeRetrievedEvidence(result.articles, { outcomeType: inferOutcomeType(project.intent) }), warning: result.compliance?.contactEmailConfigured ? null : 'NCBI contact email is not configured; configure NCBI_EMAIL before high-volume use.' };
     } catch (error) {
       return { query, mode: 'unavailable', articles: [], retrievedAt: new Date().toISOString(), source: 'NCBI PubMed E-utilities', warning: `PubMed 自动检索失败：${String(error.message || error).slice(0, 300)}。未生成或伪造任何文献。` };
     }
@@ -125,7 +125,7 @@ async function runProjectOnce(projectId, options = {}) {
     if (project.literature.summary?.methodCounts?.['restricted cubic spline']) secondary.add('限制性立方样条非线性分析');
     if (project.literature.summary?.methodCounts?.['linear regression']) secondary.add('连续结局的 survey-weighted linear regression');
     secondary.add('完整案例与多重插补敏感性分析');
-    return { schemaVersion: '1.3', design: 'pooled cross-sectional complex survey', estimand: '目标人群中的横断面调整关联', causalInterpretationAllowed: false, outcomeType, weight: `根据最小分析子样本自动选择，并除以 ${cycles.length || 'K'} 个合并周期`, primaryModel: modelFor(outcomeType), secondary: [...secondary], literatureCandidates: project.literature.articles?.length || 0, evidenceMethodRecommendations: recommendations, evidenceStatus: 'provisional_unreviewed', approvalRequired: true };
+    return { schemaVersion: '1.4', design: 'pooled cross-sectional complex survey', estimand: '目标人群中的横断面调整关联', causalInterpretationAllowed: false, outcomeType, weight: `根据最小分析子样本自动选择，并除以 ${cycles.length || 'K'} 个合并周期`, primaryModel: modelFor(outcomeType), secondary: [...secondary], literatureCandidates: project.literature.articles?.length || 0, evidenceMethodRecommendations: recommendations, methodEvidenceMatrix: project.literature.summary?.methodMatrix || [], methodEvidenceDecisions: project.literature.summary?.methodDecisions || [], evidenceStatus: 'provisional_unreviewed', approvalRequired: true };
   });
   project.agentPlan = buildAgentPlan(project);
   project.status = 'awaiting_approval';
@@ -153,8 +153,10 @@ function approveProject(projectId, input = {}) {
 function saveEvidence(projectId, input = {}) {
   const project = getProject(projectId), items = normalizeEvidence(input.items);
   delete project.modelSpec;
-  project.evidence = { query: String(input.query || '').slice(0, 5000), retrievedAt: input.retrievedAt || null, screenedAt: new Date().toISOString(), items, summary: summarizeEvidence(items) };
-  project.protocol = { ...(project.protocol || {}), evidenceBasedRecommendations: project.evidence.summary.recommendations, evidenceIncluded: project.evidence.summary.included, evidenceUpdatedAt: project.evidence.screenedAt, approvalRequired: true };
+  const summary = summarizeEvidence(items, { outcomeType: inferOutcomeType(project.intent) });
+  project.evidence = { query: String(input.query || '').slice(0, 5000), retrievedAt: input.retrievedAt || null, screenedAt: new Date().toISOString(), items, summary, methodEvidence: { schemaVersion: '1.0', basis: 'screened_pubmed_title_abstract', matrix: summary.methodMatrix, decisions: summary.methodDecisions, warning: summary.warning } };
+  project.protocol = { ...(project.protocol || {}), schemaVersion: '1.4', frozen: false, frozenAt: null, approvalId: null, evidenceBasedRecommendations: summary.recommendations, methodEvidenceMatrix: summary.methodMatrix, methodEvidenceDecisions: summary.methodDecisions, evidenceIncluded: summary.included, evidenceUpdatedAt: project.evidence.screenedAt, evidenceStatus: 'screened_title_abstract', approvalRequired: true };
+  project.status = 'awaiting_approval';
   project.feasibility = assessFeasibility(project.intent, project.variables);
   project.agentPlan = buildAgentPlan(project);
   defaultStore.save(project, 'evidence.screened', { included: project.evidence.summary.included, excluded: project.evidence.summary.excluded, uncertain: project.evidence.summary.uncertain });

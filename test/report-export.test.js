@@ -43,6 +43,8 @@ test('manuscript draft separates Methods and Results without causal claims', () 
   assert.match(draft, /不能据此推断因果关系/);
 });
 
+test('manuscript draft binds screened PubMed methods to decisions and references',()=>{const cited={...project,evidence:{methodEvidence:{matrix:[{pmid:'123',title:'Methods study',journal:'Journal',published:'2025',url:'https://pubmed.ncbi.nlm.nih.gov/123/',doi:'10.1/test'}],decisions:[{topic:'主模型',approach:'survey-weighted linear regression',rationale:'与连续结局相符'}]}}};const draft=manuscriptDraft(cited,result);assert.match(draft,/统计方法选择同时参考了 1 篇/);assert.match(draft,/与连续结局相符/);assert.match(draft,/Methodological evidence references/);assert.match(draft,/PMID: \[123\]/)});
+
 test('combined result table is Excel-friendly CSV with provenance metadata', () => {
   const csv = resultTablesCsv(project, result);
   assert.match(csv, /# project_id=prj_0123456789abcdef/);

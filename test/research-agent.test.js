@@ -8,8 +8,9 @@ test('statistical agent selects a model family from outcome semantics', () => {
 });
 
 test('agent plan exposes automation, gates and the next action', () => {
-  const plan = buildAgentPlan({ question: 'sleep and cardiovascular disease', intent: { outcome: { term: 'cardiovascular disease' } }, variableDiscovery: { candidates: [{ items: [{ variable: 'SLD012' }] }] }, feasibility: { status: 'design_only', blockers: ['confirm variables'] }, literature: { articles: [] }, protocol: {}, status: 'awaiting_approval' });
+  const plan = buildAgentPlan({ question: 'sleep and cardiovascular disease', intent: { outcome: { term: 'cardiovascular disease' } }, variableDiscovery: { candidates: [{ items: [{ variable: 'SLD012' }] }] }, feasibility: { status: 'design_only', blockers: ['confirm variables'] }, literature: { articles: [{ pmid:'123' }] }, protocol: {}, status: 'awaiting_approval' });
   assert.equal(plan.mode, 'agent_orchestrated');
   assert.equal(plan.tasks.find(x => x.id === 'discover_variables').status, 'needs_review');
-  assert.match(plan.nextAction, /确认/);
+  assert.equal(plan.tasks.find(x => x.id === 'review_evidence').status, 'needs_review');
+  assert.match(plan.nextAction, /PubMed/);
 });

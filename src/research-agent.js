@@ -13,7 +13,7 @@ function modelFor(type) {
 function buildAgentPlan(project) {
   const feasibility = project.feasibility || {}, type = inferOutcomeType(project.intent);
   const candidateCount = (project.variableDiscovery?.candidates || []).reduce((sum, group) => sum + group.items.length, 0);
-  const ready = feasibility.status === 'executable';
+  const ready = feasibility.status === 'executable', literatureCount = project.literature?.articles?.length || 0, evidencePending = literatureCount > 0 && !project.evidence;
   return {
     schemaVersion: '1.0', mode: 'agent_orchestrated', generatedAt: new Date().toISOString(),
     objective: project.question, outcomeType: type, proposedPrimaryModel: modelFor(type),
@@ -21,13 +21,13 @@ function buildAgentPlan(project) {
     tasks: [
       { id: 'interpret_question', agent: 'research-question-agent', status: project.intent ? 'completed' : 'pending', output: 'structured research intent' },
       { id: 'discover_variables', agent: 'nhanes-metadata-agent', status: ready ? 'completed' : candidateCount ? 'needs_review' : 'blocked', output: `${candidateCount} official catalog candidates` },
-      { id: 'review_evidence', agent: 'pubmed-evidence-agent', status: project.literature ? 'completed' : 'pending', output: `${project.literature?.articles?.length || 0} retrieved records` },
+      { id: 'review_evidence', agent: 'pubmed-methods-agent', status: project.evidence ? 'completed' : project.literature ? 'needs_review' : 'pending', output: project.evidence ? `${project.evidence.summary?.included || 0} included records · ${project.evidence.methodEvidence?.decisions?.length || 0} method decisions` : `${literatureCount} retrieved records awaiting screening` },
       { id: 'design_analysis', agent: 'statistical-design-agent', status: project.protocol ? 'completed' : 'pending', output: modelFor(type) },
       { id: 'approve_protocol', agent: 'researcher', status: project.status === 'approved' ? 'completed' : 'waiting', output: 'frozen analysis specification' },
       { id: 'generate_and_execute', agent: 'sandboxed-r-agent', status: ready && project.status === 'approved' ? 'ready' : 'blocked', output: 'reproducible artifacts' },
       { id: 'quality_and_report', agent: 'quality-report-agent', status: 'blocked', output: 'audited report or explicit failure' }
     ],
-    blockers: feasibility.blockers || [], nextAction: ready ? '研究者确认并冻结分析方案' : candidateCount ? '研究者确认官方目录候选变量及定义' : '补充研究概念或扩大官方变量检索'
+    blockers: feasibility.blockers || [], nextAction: evidencePending ? '研究者筛选 PubMed 文献并复核方法证据矩阵' : ready ? '研究者确认并冻结分析方案' : candidateCount ? '研究者确认官方目录候选变量及定义' : '补充研究概念或扩大官方变量检索'
   };
 }
 

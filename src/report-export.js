@@ -78,6 +78,9 @@ function manuscriptDraft(project, result) {
   const nonlinear=result.nonlinearAnalysis?.method==='restricted_cubic_spline'?`预设限制性立方样条（df=${result.nonlinearAnalysis.df}）比较线性与非线性模型，survey Wald P=${pvalue(result.nonlinearAnalysis.p_value)}。`:'未预设非线性模型。';
   const subgroupRows=Array.isArray(result.subgroupAnalyses)?result.subgroupAnalyses:[],subgroupText=subgroupRows.length?`完成 ${new Set(subgroupRows.map(row=>row.subgroup)).size} 个预设亚组变量、${subgroupRows.length} 个分层估计；交互 P 值为探索性且未进行多重性校正。`:'未产生亚组估计。';
   const imputation=result.imputationDiagnostics||{},missingMethods=imputation.requested?`完整案例分析；另以链式方程生成 ${imputation.m||spec.missingDataPolicy?.imputation?.m||20} 份仅插补协变量的数据集，在每份数据中重建复杂抽样设计并按 Rubin 法则合并，作为敏感性分析。暴露和结局不进行插补`:'完整案例分析';
+  const methodEvidence=project.evidence?.methodEvidence,methodDecisions=methodEvidence?.decisions||[],methodMatrix=methodEvidence?.matrix||[];
+  const methodEvidenceText=methodDecisions.length?`统计方法选择同时参考了 ${methodMatrix.length} 篇经筛选的 PubMed 文献题名与摘要。${methodDecisions.map(item=>`${item.topic}采用${item.approach}（${item.rationale}）`).join('')} 文献方法仅作为适用性证据，最终方案以 NHANES 官方复杂抽样要求、当前变量定义和预先冻结的结局类型为准。`:'尚无经筛选的 PubMed 方法学证据；模型依据 NHANES 官方复杂抽样原则和冻结的结局类型确定。';
+  const methodReferences=methodMatrix.length?`## Methodological evidence references\n\n${methodMatrix.map(item=>`- ${item.title||'Untitled'}. ${item.journal||''} ${item.published||''}. PMID: [${item.pmid}](${item.url})${item.doi?`; DOI: ${item.doi}`:''}.`).join('\n')}\n\n`:'';
   return `# 论文 Methods / Results 草稿
 
 > 本文本由已冻结方案和通过质量门的分析结果自动生成，投稿前必须由研究者核对期刊格式、变量定义、文献引用与临床解释。
@@ -88,12 +91,15 @@ function manuscriptDraft(project, result) {
 
 主模型采用${regression}，调整变量包括${covariates}。缺失数据主分析采用${missingMethods}。分析先在完整 NHANES 抽样设计中定义权重、分层和 PSU，再通过 survey 子总体方法限制目标分析域，以保持方差估计的设计一致性。${sensitivity}${nonlinear}${subgroupText}
 
+${methodEvidenceText}
+
 ## Results
 
 数据合并后共有 ${flow.merged ?? '未记录'} 条记录，其中 ${populationN} 人符合目标人群条件，${completeN} 人进入最终分析。${effectSentence(main)}
 
 加权描述性统计、主模型、敏感性分析、缺失模式和抽样设计诊断见随附结果表。${nonlinear}${subgroupText}自动质量控制共通过 ${result.qualitySummary?.passed ?? '全部必需'} 项必需检查。结果仅表示横断面关联，不能据此推断因果关系。
 
+${methodReferences}
 `;
 }
 
